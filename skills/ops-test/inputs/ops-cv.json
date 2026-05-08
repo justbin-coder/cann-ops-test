@@ -1,0 +1,119 @@
+{
+  "repo": "ops-cv",
+  "selection_meta": {
+    "n_per_bucket": 5,
+    "bucket_priority": [
+      "hif8",
+      "cv_fusion",
+      "regbase",
+      "simt"
+    ],
+    "filtered_out": {
+      "inconsistency": 1,
+      "readme_no": 0
+    },
+    "total_pool_after_filter": 19,
+    "total_selected": 8
+  },
+  "by_bucket": {
+    "hif8": [],
+    "cv_fusion": [],
+    "regbase": [
+      {
+        "name": "resize_nearest_neighbor_v2",
+        "category": "image",
+        "rules_hit": [
+          "regbase",
+          "simt"
+        ],
+        "evidence_count": 22,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_nearest_neighbor_v2_data_copy_nhwc.h:27"
+      },
+      {
+        "name": "resize_bilinear_v2",
+        "category": "image",
+        "rules_hit": [
+          "regbase",
+          "simt"
+        ],
+        "evidence_count": 8,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_bilinear_v2_c_parallel.h:24"
+      },
+      {
+        "name": "resize_bilinear_v2_grad",
+        "category": "image",
+        "rules_hit": [
+          "regbase",
+          "simt"
+        ],
+        "evidence_count": 7,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_bilinear_v2_grad_c_parallel.h:23"
+      }
+    ],
+    "simt": [
+      {
+        "name": "resize_linear_grad",
+        "category": "image",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 10,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_linear_grad_out1.h:56"
+      },
+      {
+        "name": "aipp",
+        "category": "image",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 6,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/aipp_rgb.h:48"
+      },
+      {
+        "name": "resize_bicubic_v2",
+        "category": "image",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 4,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_bicubic_v2_simt_nchw.h:93"
+      },
+      {
+        "name": "resize_bicubic_v2_grad",
+        "category": "image",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 4,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/resize_bicubic_v2_grad_simt.h:151"
+      },
+      {
+        "name": "upsample_bicubic2d_aa_grad",
+        "category": "image",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 4,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/upsample_bicubic2d_aa_grad_simt_base.h:99"
+      }
+    ]
+  },
+  "unique_targets": [
+    "resize_nearest_neighbor_v2",
+    "resize_bilinear_v2",
+    "resize_bilinear_v2_grad",
+    "resize_linear_grad",
+    "aipp",
+    "resize_bicubic_v2",
+    "resize_bicubic_v2_grad",
+    "upsample_bicubic2d_aa_grad"
+  ]
+}

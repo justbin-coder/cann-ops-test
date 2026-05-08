@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# 运行产物（不入库）
+skills/ops-test/outputs/
+skills/scann-repo/outputs/
+
+# 用户状态文件（不入库，各自本地维护）
+skills/scann-repo/state.json
+
+# 白名单（依赖本地 PDF，不入库）
+skills/scann-repo/whitelist_cube.md
+skills/scann-repo/whitelist_vector.md
+skills/scann-repo/WHITELIST_SOURCE.md
+
+# OS
+.DS_Store
+Thumbs.db

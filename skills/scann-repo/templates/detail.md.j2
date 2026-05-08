@@ -1,0 +1,39 @@
+# {{ repo }} / 950 扫描证据明细
+
+{% for op in operators if op.is_target -%}
+{%- set hit_rules = [] %}
+{%- for r in ["simt","hif8","regbase","cv_fusion"] %}
+{%- if op.rules_hit[r] %}{%- set rule_label = {"simt":"simt","hif8":"hif8","regbase":"RegBase","cv_fusion":"CV融合"}[r] %}{%- set _ = hit_rules.append(rule_label) %}{%- endif %}
+{%- endfor %}
+## {{ op.name }}  ✓ {{ ", ".join(hit_rules) }}
+
+- README/950: {{ {"yes":"✓","no":"×","unknown":"?","absent":"-"}[op.readme.support_950] }}
+- 命中证据:
+{%- for r in ["simt","hif8","regbase"] %}
+{%- set hits = op.rules_hit[r] %}
+{%- if hits %}
+{%- for h in hits[:5] %}
+  - **{{ {"simt":"simt","hif8":"hif8","regbase":"RegBase"}[r] }}** `{{ h.file }}:{{ h.line }}` — `{{ h.match }}`
+{%- endfor %}
+{%- if hits|length > 5 %}
+  - ...另 {{ hits|length - 5 }} 条折叠
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- if op.rules_hit.cv_fusion %}
+{%- for h in op.rules_hit.cv_fusion.cube[:5] %}
+  - **CV融合 / cube** `{{ h.file }}:{{ h.line }}` — `{{ h.match }}`
+{%- endfor %}
+{%- for h in op.rules_hit.cv_fusion.vector[:5] %}
+  - **CV融合 / vector** `{{ h.file }}:{{ h.line }}` — `{{ h.match }}`
+{%- endfor %}
+{%- endif %}
+
+{% endfor %}
+
+---
+
+## 附录:未命中算子列表
+{%- set unhit = [] %}
+{%- for op in operators if not op.is_target %}{%- set _ = unhit.append(op.name) %}{%- endfor %}
+{{ ", ".join(unhit) }}

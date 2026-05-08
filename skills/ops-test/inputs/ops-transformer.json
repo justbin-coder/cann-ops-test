@@ -1,0 +1,262 @@
+{
+  "repo": "ops-transformer",
+  "selection_meta": {
+    "n_per_bucket": 5,
+    "bucket_priority": [
+      "hif8",
+      "cv_fusion",
+      "regbase",
+      "simt"
+    ],
+    "filtered_out": {
+      "inconsistency": 13,
+      "readme_no": 0
+    },
+    "total_pool_after_filter": 40,
+    "total_selected": 20
+  },
+  "by_bucket": {
+    "hif8": [
+      {
+        "name": "grouped_matmul",
+        "category": "gmm",
+        "rules_hit": [
+          "hif8",
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 404,
+        "readme": "yes",
+        "sample_path": "op_host/grouped_matmul_infershape_quant_checker.cpp:82"
+      },
+      {
+        "name": "flash_attention_score_grad",
+        "category": "attention",
+        "rules_hit": [
+          "hif8",
+          "cv_fusion"
+        ],
+        "evidence_count": 1535,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/flash_attention_score_grad_template_tiling_key.h:1186"
+      },
+      {
+        "name": "prompt_flash_attention",
+        "category": "attention",
+        "rules_hit": [
+          "hif8",
+          "cv_fusion"
+        ],
+        "evidence_count": 1102,
+        "readme": "yes",
+        "sample_path": "op_host/prompt_flash_attention_tiling_arch38.cpp:758"
+      },
+      {
+        "name": "flash_attention_score",
+        "category": "attention",
+        "rules_hit": [
+          "hif8",
+          "cv_fusion"
+        ],
+        "evidence_count": 321,
+        "readme": "yes",
+        "sample_path": "op_host/arch35/flash_attention_score_tiling_regbase.cpp:96"
+      },
+      {
+        "name": "fused_infer_attention_score",
+        "category": "attention",
+        "rules_hit": [
+          "hif8",
+          "cv_fusion"
+        ],
+        "evidence_count": 290,
+        "readme": "yes",
+        "sample_path": "op_host/checkers/dequant_checker.cpp:1095"
+      }
+    ],
+    "cv_fusion": [
+      {
+        "name": "kv_quant_sparse_flash_attention",
+        "category": "attention",
+        "rules_hit": [
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 170,
+        "readme": "yes",
+        "sample_path": "op_kernel/kv_quant_sparse_flash_attention_service_cube_mla.h:477"
+      },
+      {
+        "name": "lightning_indexer",
+        "category": "attention",
+        "rules_hit": [
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 160,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch32/lightning_indexer_service_cube.h:335"
+      },
+      {
+        "name": "quant_lightning_indexer",
+        "category": "attention",
+        "rules_hit": [
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 151,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch32/quant_lightning_indexer_service_cube.h:424"
+      },
+      {
+        "name": "grouped_matmul_finalize_routing",
+        "category": "gmm",
+        "rules_hit": [
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 124,
+        "readme": "unknown",
+        "sample_path": "op_kernel/grouped_matmul_finalize_routing.cpp:64"
+      },
+      {
+        "name": "mhc_post_backward",
+        "category": "mhc",
+        "rules_hit": [
+          "regbase",
+          "cv_fusion"
+        ],
+        "evidence_count": 49,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/mhc_post_backward_kernel.h:104"
+      }
+    ],
+    "regbase": [
+      {
+        "name": "mega_moe",
+        "category": "mc2",
+        "rules_hit": [
+          "regbase",
+          "simt"
+        ],
+        "evidence_count": 50,
+        "readme": "yes",
+        "sample_path": "op_kernel/block_epilogue_swiglu_mx_quant.h:303"
+      },
+      {
+        "name": "ring_attention_update",
+        "category": "attention",
+        "rules_hit": [
+          "regbase"
+        ],
+        "evidence_count": 31,
+        "readme": "unknown",
+        "sample_path": "op_kernel/arch35/ring_attention_update_regbase_common.h:71"
+      },
+      {
+        "name": "attention_update",
+        "category": "attention",
+        "rules_hit": [
+          "regbase"
+        ],
+        "evidence_count": 30,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/attention_update_with_lse_regbase.h:188"
+      },
+      {
+        "name": "moe_gating_top_k_softmax",
+        "category": "moe",
+        "rules_hit": [
+          "regbase"
+        ],
+        "evidence_count": 12,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/moe_gating_top_k_softmax_fullload_generalized_regbase.h:175"
+      },
+      {
+        "name": "moe_distribute_combine_v2",
+        "category": "mc2",
+        "rules_hit": [
+          "regbase"
+        ],
+        "evidence_count": 8,
+        "readme": "yes",
+        "sample_path": "op_kernel/moe_distribute_combine_v2_quant.h:200"
+      }
+    ],
+    "simt": [
+      {
+        "name": "moe_init_routing_v3",
+        "category": "moe",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 6,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/moe_v3_expert_tokens_count.h:74"
+      },
+      {
+        "name": "moe_init_routing_quant_v2",
+        "category": "moe",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 5,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/moe_v2_expert_token_out_simt.h:149"
+      },
+      {
+        "name": "moe_init_routing_v2",
+        "category": "moe",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 5,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/moe_v2_expert_token_out_simt.h:148"
+      },
+      {
+        "name": "moe_token_permute_with_routing_map",
+        "category": "moe",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 4,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/gather_v2_simt_two_dim.h:50"
+      },
+      {
+        "name": "moe_init_routing",
+        "category": "moe",
+        "rules_hit": [
+          "simt"
+        ],
+        "evidence_count": 1,
+        "readme": "yes",
+        "sample_path": "op_kernel/arch35/moe_src_to_dst_simt_op.h:65"
+      }
+    ]
+  },
+  "unique_targets": [
+    "grouped_matmul",
+    "flash_attention_score_grad",
+    "prompt_flash_attention",
+    "flash_attention_score",
+    "fused_infer_attention_score",
+    "kv_quant_sparse_flash_attention",
+    "lightning_indexer",
+    "quant_lightning_indexer",
+    "grouped_matmul_finalize_routing",
+    "mhc_post_backward",
+    "mega_moe",
+    "ring_attention_update",
+    "attention_update",
+    "moe_gating_top_k_softmax",
+    "moe_distribute_combine_v2",
+    "moe_init_routing_v3",
+    "moe_init_routing_quant_v2",
+    "moe_init_routing_v2",
+    "moe_token_permute_with_routing_map",
+    "moe_init_routing"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "name": "cann-ops",
+  "description": "CANN 950 算子全流程工具：仓扫描(scann-repo) + 算子跑测(ops-test)",
+  "version": "1.0.0",
+  "author": {
+    "name": "CANN Ops Team"
+  },
+  "homepage": "https://github.com/your-org/cann-ops-plugin",
+  "repository": "https://github.com/your-org/cann-ops-plugin",
+  "license": "MIT",
+  "keywords": ["cann", "ascend", "950", "ops", "testing", "scanning"]
+}
