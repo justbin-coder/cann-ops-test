@@ -1,0 +1,19 @@
+{
+  "name": "cann-ops",
+  "owner": {
+    "name": "justbin-coder"
+  },
+  "metadata": {
+    "description": "CANN 950 算子全流程工具：仓扫描(scann-repo) + 算子跑测(ops-test)",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "cann-ops",
+      "source": "./",
+      "description": "CANN 950 operator full-cycle toolset: scan repos for 950-dependent operators (hif8/simt/RegBase/CV-fusion), then run Phase 1-4 tests with inter-repo concurrency and generate structured reports.",
+      "category": "testing",
+      "tags": ["cann", "ascend", "950", "npu", "ops", "testing", "scanning", "huawei"]
+    }
+  ]
+}

@@ -46,38 +46,24 @@ cann-ops-plugin/
 
 ## 安装
 
-### 1. 克隆
+### 1. 添加 marketplace 并安装 plugin（两条命令）
 
 ```bash
-git clone https://github.com/justbin-coder/cann-ops-test.git ~/cann-ops-plugin
+claude plugin marketplace add justbin-coder/cann-ops-test
+claude plugin install cann-ops@cann-ops-test
 ```
+
+无需手动编辑任何 JSON 文件。
 
 ### 2. 安装 Python 依赖
 
 ```bash
-# scann-repo 依赖
-pip install -r ~/cann-ops-plugin/skills/scann-repo/requirements.txt
-
-# ops-test 依赖（Python 3.8+，无额外 pip 包，仅需 CANN toolkit 已安装）
+# 找到安装路径（通常在 ~/.claude/plugins/cache/ 下）
+PLUGIN_PATH=$(claude plugin list | grep cann-ops | awk '{print $NF}')
+pip install -r "$PLUGIN_PATH/skills/scann-repo/requirements.txt"
 ```
 
-### 3. 注册 plugin
-
-编辑 `~/.claude/plugins/installed_plugins.json`，在 `plugins` 节点追加：
-
-```json
-"cann-ops@local": [
-  {
-    "scope": "user",
-    "installPath": "/path/to/your/cann-ops-plugin",
-    "version": "1.0.0",
-    "installedAt": "2026-01-01T00:00:00.000Z",
-    "lastUpdated": "2026-01-01T00:00:00.000Z"
-  }
-]
-```
-
-### 4. 配置环境变量（ops-test 必须）
+### 3. 配置环境变量（ops-test 必须）
 
 在 `~/.bashrc` / `~/.zshrc` 里追加：
 
