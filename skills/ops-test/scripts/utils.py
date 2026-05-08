@@ -1,6 +1,7 @@
-"""通用工具：subprocess 包装、日志落盘、PASS 判定。"""
+"""通用工具：subprocess 包装、日志落盘、PASS 判定、目标算子来源解析。"""
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import time
@@ -26,8 +27,7 @@ def _find_set_env_sh() -> str:
 
 CANN_SET_ENV_SH = _find_set_env_sh()
 
-# 950 工具固定 SOC，写死避免 --soc 参数化。见 SKILL.md 「前置环境节点 P1」。
-DEFAULT_SOC = "ascend950"
+# SOC 不再硬编码。每个 runner 通过 --soc CLI 参数显式接收，由 skill 询问用户得到。
 
 # PASS 判定的 stdout 模式（覆盖 examples / pytest / 通用 UT 三种风格）
 SUCCESS_PATTERNS = [
@@ -145,3 +145,88 @@ def append_ld_library_path(env: dict, repo: str, ascend_home: str) -> dict:
     cur = env.get("LD_LIBRARY_PATH", "")
     env["LD_LIBRARY_PATH"] = f"{seg}:{cur}" if cur else seg
     return env
+
+
+class OpsResolutionError(RuntimeError):
+    """目标算子来源解析失败（多源未命中或文件格式不对）。"""
+
+
+def resolve_ops(
+    repo: str,
+    cli_ops: Optional[str] = None,
+    cli_ops_file: Optional[str] = None,
+    scann_root: Optional[Path] = None,
+) -> list[str]:
+    """按优先级解析目标算子清单。
+
+    优先级（高→低）：
+      1. ``cli_ops``：CSV 字符串，例如 ``op1,op2,op3``。skill 显式传入时使用。
+      2. ``cli_ops_file``：路径，可以是 .json（含 ``unique_targets`` 列表 / 顶层 list）
+         或纯文本（一行一个算子，``#`` 开头为注释，空行忽略）。
+      3. ``scann_root / repo / _intermediate.json`` 的 ``unique_targets`` 字段
+         （由 ``cann-ops:scann-repo`` 生成的默认入口）。
+
+    全部未命中 → 抛 ``OpsResolutionError``，要求 skill 与用户交互后重试。
+
+    返回：去重后保持原始顺序的算子名列表。
+    """
+    if cli_ops:
+        return _dedupe([s.strip() for s in cli_ops.split(",") if s.strip()])
+
+    if cli_ops_file:
+        return _read_ops_file(Path(cli_ops_file))
+
+    root = scann_root or (Path.cwd() / "cann-ops-report" / "scann")
+    intermediate = root / repo / "_intermediate.json"
+    if intermediate.exists():
+        try:
+            data = json.loads(intermediate.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise OpsResolutionError(f"{intermediate} 不是合法 JSON: {e}")
+        ops = data.get("unique_targets")
+        if not ops:
+            raise OpsResolutionError(
+                f"{intermediate} 缺少 unique_targets 字段或为空，"
+                f"请重新运行 cann-ops:scann-repo 扫描 {repo}"
+            )
+        return _dedupe(list(ops))
+
+    raise OpsResolutionError(
+        f"未指定目标算子来源：未传 --ops/--ops-file，且 {intermediate} 不存在。"
+        f"请先用 cann-ops:scann-repo 扫描，或显式提供 --ops 算子清单。"
+    )
+
+
+def _read_ops_file(path: Path) -> list[str]:
+    if not path.exists():
+        raise OpsResolutionError(f"--ops-file 指向的文件不存在: {path}")
+    text = path.read_text(encoding="utf-8").strip()
+    # 尝试 JSON：支持 {"unique_targets": [...]} 或顶层 list
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and "unique_targets" in data:
+            return _dedupe(list(data["unique_targets"]))
+        if isinstance(data, list):
+            return _dedupe([str(x) for x in data])
+    except json.JSONDecodeError:
+        pass
+    # 纯文本：每行一个算子，# 注释，空行忽略
+    ops: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        ops.append(s)
+    if not ops:
+        raise OpsResolutionError(f"--ops-file {path} 解析后为空")
+    return _dedupe(ops)
+
+
+def _dedupe(seq: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in seq:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out

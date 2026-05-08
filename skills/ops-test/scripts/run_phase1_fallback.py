@@ -23,13 +23,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import load as load_state  # noqa: E402
-from utils import DEFAULT_SOC  # noqa: E402
 
 # 所有产物写到 CWD/cann-ops-report/test/
 WORK_DIR = Path.cwd() / "cann-ops-report/test"
 OUTPUTS_DIR = WORK_DIR
 
 DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
+
+# SOC 由 main() 从 --soc 参数填入，跨进程通过 fork 继承
+SOC: str = ""
 
 
 def parse_repo_mapping(s: str) -> dict[str, str]:
@@ -75,7 +77,7 @@ def run_repo_fallback(repo: str, ops: list[str]) -> dict:
     for i, op in enumerate(ops, 1):
         op_t0 = time.time()
         status = process_op(
-            repo, repo_path, op, DEFAULT_SOC,
+            repo, repo_path, op, SOC,
             build_timeout=900, install_timeout=300, test_timeout=600,
         )
         dt = time.time() - op_t0
@@ -93,10 +95,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo-mapping", required=True,
                     help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
+    ap.add_argument("--soc", required=True,
+                    help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
     ap.add_argument("--statuses", default="BUILD_FAIL,INSTALL_FAIL",
                     help="re-run ops in these phase1 statuses")
     ap.add_argument("--max-workers", type=int, default=3)
     args = ap.parse_args()
+
+    global SOC
+    SOC = args.soc
 
     REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
     repos = list(REPO_PATHS.keys())

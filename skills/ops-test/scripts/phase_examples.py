@@ -137,11 +137,19 @@ def process_op(repo: str, repo_path: Path, op: str, soc: str,
 
 
 def main() -> int:
+    from utils import resolve_ops, OpsResolutionError  # noqa: E402
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--repo-path", required=True)
-    ap.add_argument("--soc", default="ascend950")
-    ap.add_argument("--op", default=None, help="run a single op only")
+    ap.add_argument("--soc", required=True,
+                    help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
+    ap.add_argument("--op", default=None,
+                    help="只跑单个算子；若不传则跑下面 ops 来源解析出的全部算子")
+    ap.add_argument("--ops", default="",
+                    help="目标算子 CSV，例如 op1,op2,op3。若不传则按 --ops-file → scann-repo 产物的优先级回退")
+    ap.add_argument("--ops-file", default="",
+                    help="目标算子文件（.json 含 unique_targets / 顶层 list / 一行一算子的纯文本）")
     ap.add_argument("--build-timeout", type=int, default=900)
     ap.add_argument("--install-timeout", type=int, default=300)
     ap.add_argument("--test-timeout", type=int, default=600)
@@ -152,21 +160,19 @@ def main() -> int:
         print(f"[ERROR] repo path not found: {repo_path}", file=sys.stderr)
         return 1
 
-    # 从 CWD/cann-ops-report/scann/<repo>/_intermediate.json 读目标算子（由 scann-repo 生成）
-    intermediate = Path.cwd() / "cann-ops-report" / "scann" / args.repo / "_intermediate.json"
-    if not intermediate.exists():
-        print(f"[ERROR] 未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {args.repo}",
-              file=sys.stderr)
-        return 1
-    with open(intermediate, encoding="utf-8") as f:
-        ops = json.load(f)["unique_targets"]
+    try:
+        ops = resolve_ops(args.repo, cli_ops=args.ops or None,
+                          cli_ops_file=args.ops_file or None)
+    except OpsResolutionError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
 
     init_repo(args.repo, ops)
 
     target_ops = [args.op] if args.op else ops
     for op in target_ops:
         if op not in ops:
-            print(f"[WARN] op '{op}' not in scan results, skipping", file=sys.stderr)
+            print(f"[WARN] op '{op}' not in target ops list, skipping", file=sys.stderr)
             continue
         status = process_op(args.repo, repo_path, op, args.soc,
                            args.build_timeout, args.install_timeout, args.test_timeout)

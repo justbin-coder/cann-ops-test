@@ -19,11 +19,17 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from utils import resolve_ops, OpsResolutionError  # noqa: E402
 
 # 所有产物写到 CWD/cann-ops-report/test/，不写 skill 安装目录
 WORK_DIR = Path.cwd() / "cann-ops-report/test"
 
-SOC = "ascend950"
+# SOC 由 main() 从 --soc 参数填入，子进程通过 fork 继承
+SOC: str = ""
+
+# 目标算子源（CSV / 文件路径）由 main() 填入；为空时各仓回退到 scann-repo 产物
+CLI_OPS: str = ""
+CLI_OPS_FILE: str = ""
 
 def _find_set_env_sh() -> str:
     ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
@@ -64,14 +70,8 @@ SUCCESS_PATTERNS = [
 
 
 def extract_ops(repo: str) -> list:
-    """从 CWD/cann-ops-report/scann/<repo>/_intermediate.json 读取目标算子（由 scann-repo 生成）。"""
-    intermediate = Path.cwd() / "cann-ops-report" / "scann" / repo / "_intermediate.json"
-    if not intermediate.exists():
-        raise FileNotFoundError(
-            f"未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {repo}"
-        )
-    with open(intermediate, encoding="utf-8") as f:
-        return json.load(f).get("unique_targets", [])
+    """按优先级解析目标算子：CLI --ops > --ops-file > scann-repo 产物。"""
+    return resolve_ops(repo, cli_ops=CLI_OPS or None, cli_ops_file=CLI_OPS_FILE or None)
 
 
 def find_op_dir(repo_path: Path, op: str) -> Path | None:
@@ -397,7 +397,18 @@ def main():
     ap.add_argument("--repo-mapping", required=True,
                     help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...；"
                          "传入一项即单仓模式，多项即仓间并发模式")
+    ap.add_argument("--soc", required=True,
+                    help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
+    ap.add_argument("--ops", default="",
+                    help="目标算子 CSV，例如 op1,op2,op3。若不传则按 --ops-file → scann-repo 产物的优先级回退")
+    ap.add_argument("--ops-file", default="",
+                    help="目标算子文件（.json 含 unique_targets 列表 / 顶层 list / 一行一算子的纯文本）")
     args = ap.parse_args()
+
+    global SOC, CLI_OPS, CLI_OPS_FILE
+    SOC = args.soc
+    CLI_OPS = args.ops
+    CLI_OPS_FILE = args.ops_file
 
     REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
     target_repos = list(REPO_PATHS.keys())
@@ -414,7 +425,11 @@ def main():
     print()
 
     for repo in target_repos:
-        ops = extract_ops(repo)
+        try:
+            ops = extract_ops(repo)
+        except OpsResolutionError as e:
+            print(f"   {repo:20s}  ✗ {e}", flush=True)
+            return 2
         print(f"   {repo:20s}  {len(ops):2d} 个目标算子（path={REPO_PATHS[repo]}）")
     print()
 
