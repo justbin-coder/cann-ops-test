@@ -9,11 +9,12 @@ build/
 .venv/
 venv/
 
-# 运行产物（不入库）
-skills/ops-test/outputs/
-skills/scann-repo/outputs/
+# 运行产物（写到用户 CWD/950-test/，不在 plugin 目录下，无需忽略）
 
-# 用户状态文件（不入库，各自本地维护）
+# 用户私有数据（不入库）
+skills/ops-test/inputs/           # 目标算子清单：由 scann-repo 生成，因人而异
+
+# 用户状态文件（本地维护）
 skills/scann-repo/state.json
 
 # 白名单（依赖本地 PDF，不入库）

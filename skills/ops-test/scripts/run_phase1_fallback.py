@@ -22,22 +22,13 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from state import load as load_state  # noqa: E402
 from utils import DEFAULT_SOC  # noqa: E402
+from config import get_repo_path  # noqa: E402
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-INPUTS_DIR = PROJECT_ROOT / "inputs"
-OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-
-# ops 仓根目录：优先读 CANN_REPOS_PATH 环境变量，fallback ~/cann
-_REPOS_ROOT = Path(os.environ.get("CANN_REPOS_PATH", str(Path.home() / "cann")))
-REPO_PATHS = {
-    "ops-transformer": str(_REPOS_ROOT / "ops-transformer"),
-    "ops-cv":          str(_REPOS_ROOT / "ops-cv"),
-    "ops-math":        str(_REPOS_ROOT / "ops-math"),
-    "ops-nn":          str(_REPOS_ROOT / "ops-nn"),
-}
+# 所有产物写到 CWD/950-test/
+WORK_DIR = Path.cwd() / "950-test"
+OUTPUTS_DIR = WORK_DIR
 
 DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
 
@@ -55,7 +46,11 @@ def run_repo_fallback(repo: str, ops: list[str]) -> dict:
     """对一个仓的 ops 列表串行单算子跑测。子进程内 import phase_examples 直跑。"""
     from phase_examples import process_op
 
-    repo_path = Path(REPO_PATHS[repo])
+    repo_path_str = get_repo_path(repo)
+    if not repo_path_str:
+        print(f"[{repo}] SKIP: 未配置路径，请先运行 cann-ops:ops-test 完成配置", flush=True)
+        return {"repo": repo, "total_s": 0, "counts": {"SKIPPED": len(ops)}, "per_op": []}
+    repo_path = Path(repo_path_str)
     t0 = time.time()
     counts: dict[str, int] = {}
     per_op = []

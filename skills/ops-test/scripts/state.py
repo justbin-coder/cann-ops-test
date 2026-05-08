@@ -13,8 +13,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-STATE_FILE = PROJECT_ROOT / "outputs" / "run_state.json"
+# 所有运行产物写到用户当前工作目录的 950-test/ 子目录。
+# skill 安装目录（__file__ 所在位置）不写任何输出文件。
+WORK_DIR = Path.cwd() / "950-test"
+STATE_FILE = WORK_DIR / "run_state.json"
 
 VALID_STATUSES = {
     "PENDING", "RUNNING", "PASS",

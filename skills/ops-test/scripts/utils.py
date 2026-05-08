@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-OUTPUTS_DIR = PROJECT_ROOT / "outputs"
-LOGS_DIR = OUTPUTS_DIR / "logs"
+# 运行产物写到 CWD/950-test/（与 state.py 保持一致）
+WORK_DIR = Path.cwd() / "950-test"
+OUTPUTS_DIR = WORK_DIR
+LOGS_DIR = WORK_DIR / "logs"
 
-# CANN 环境激活脚本路径。优先用 ASCEND_HOME_PATH 环境变量推导（CANN 安装后自动设置），
-# fallback 到 ~/Ascend/ascend-toolkit/latest/set_env.sh（标准安装默认路径）。
+# CANN 环境激活脚本：CANN toolkit 安装后会自动设置 ASCEND_HOME_PATH，
+# 从中推导 set_env.sh 路径；找不到时 fallback 到标准安装默认路径。
 import os as _os
 def _find_set_env_sh() -> str:
     ascend_home = _os.environ.get("ASCEND_HOME_PATH", "")

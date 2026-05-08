@@ -140,8 +140,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--repo-path", required=True)
-    ap.add_argument("--inputs", required=True, help="path to inputs/<repo>.json")
-    ap.add_argument("--soc", required=True, help="from precheck, e.g. ascend950")
+    ap.add_argument("--soc", default="ascend950")
     ap.add_argument("--op", default=None, help="run a single op only")
     ap.add_argument("--build-timeout", type=int, default=900)
     ap.add_argument("--install-timeout", type=int, default=300)
@@ -153,7 +152,13 @@ def main() -> int:
         print(f"[ERROR] repo path not found: {repo_path}", file=sys.stderr)
         return 1
 
-    with open(args.inputs, encoding="utf-8") as f:
+    # 从 CWD/950-scann/<repo>/_intermediate.json 读目标算子（由 scann-repo 生成）
+    intermediate = Path.cwd() / "950-scann" / args.repo / "_intermediate.json"
+    if not intermediate.exists():
+        print(f"[ERROR] 未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {args.repo}",
+              file=sys.stderr)
+        return 1
+    with open(intermediate, encoding="utf-8") as f:
         ops = json.load(f)["unique_targets"]
 
     init_repo(args.repo, ops)
@@ -161,7 +166,7 @@ def main() -> int:
     target_ops = [args.op] if args.op else ops
     for op in target_ops:
         if op not in ops:
-            print(f"[WARN] op '{op}' not in inputs, skipping", file=sys.stderr)
+            print(f"[WARN] op '{op}' not in scan results, skipping", file=sys.stderr)
             continue
         status = process_op(args.repo, repo_path, op, args.soc,
                            args.build_timeout, args.install_timeout, args.test_timeout)

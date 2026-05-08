@@ -59,14 +59,17 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True)
     ap.add_argument("--repo-path", required=True)
-    ap.add_argument("--inputs", required=True)
-    ap.add_argument("--soc", required=True)
+    ap.add_argument("--soc", default="ascend950")
     ap.add_argument("--op", default=None)
     ap.add_argument("--timeout", type=int, default=1800)
     args = ap.parse_args()
 
     repo_path = Path(args.repo_path)
-    with open(args.inputs, encoding="utf-8") as f:
+    intermediate = Path.cwd() / "950-scann" / args.repo / "_intermediate.json"
+    if not intermediate.exists():
+        print(f"[ERROR] 未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描", file=sys.stderr)
+        return 1
+    with open(intermediate, encoding="utf-8") as f:
         ops = json.load(f)["unique_targets"]
 
     init_repo(args.repo, ops)

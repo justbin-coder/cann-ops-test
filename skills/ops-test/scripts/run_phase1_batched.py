@@ -18,16 +18,14 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
-# 脚本自身在 skills/ops-test/scripts/，parents[1] 即 skills/ops-test（含 inputs/）
-SKILL_DIR = Path(__file__).resolve().parents[1]
-CANN_950_TESTER = SKILL_DIR
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from config import get_repo_path  # noqa: E402
 
-# ops 仓根目录：优先读 CANN_REPOS_PATH 环境变量，fallback ~/cann
-REPOS_PATH = Path(os.environ.get("CANN_REPOS_PATH", str(Path.home() / "cann")))
+# 所有产物写到 CWD/950-test/，不写 skill 安装目录
+WORK_DIR = Path.cwd() / "950-test"
 
 SOC = "ascend950"
 
-# CANN set_env.sh：优先读 ASCEND_HOME_PATH 推导，fallback 标准路径
 def _find_set_env_sh() -> str:
     ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
     if ascend_home:
@@ -50,8 +48,13 @@ SUCCESS_PATTERNS = [
 
 
 def extract_ops(repo: str) -> list:
-    """从 inputs JSON 提取目标算子列表"""
-    with open(CANN_950_TESTER / f"inputs/{repo}.json") as f:
+    """从 CWD/950-scann/<repo>/_intermediate.json 读取目标算子（由 scann-repo 生成）。"""
+    intermediate = Path.cwd() / "950-scann" / repo / "_intermediate.json"
+    if not intermediate.exists():
+        raise FileNotFoundError(
+            f"未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {repo}"
+        )
+    with open(intermediate, encoding="utf-8") as f:
         return json.load(f).get("unique_targets", [])
 
 
@@ -130,11 +133,15 @@ def run_repo_optimized(repo: str) -> dict:
     3. 一次性 install
     4. 逐个 run_example
     """
-    repo_path = REPOS_PATH / repo
+    repo_path_str = get_repo_path(repo)
+    if not repo_path_str:
+        return {"repo": repo, "status": "REPO_NOT_CONFIGURED",
+                "hint": f"请运行: python scripts/config.py set-repo {repo} <path>"}
+    repo_path = Path(repo_path_str)
     if not repo_path.exists():
-        return {"repo": repo, "status": "REPO_NOT_FOUND"}
-    
-    repo_log_dir = CANN_950_TESTER / "outputs" / "logs" / repo
+        return {"repo": repo, "status": "REPO_NOT_FOUND", "path": repo_path_str}
+
+    repo_log_dir = WORK_DIR / "logs" / repo
     repo_log_dir.mkdir(parents=True, exist_ok=True)
     
     target_ops = extract_ops(repo)
@@ -359,7 +366,8 @@ def generate_report(repo_results, total_time):
     full_report["pass_rate"] = pass_pct
     full_report["status_distribution"] = grand_status_counts
     
-    report_file = CANN_950_TESTER / "outputs/phase1_report_final.json"
+    report_file = WORK_DIR / "phase1_report_final.json"
+    WORK_DIR.mkdir(parents=True, exist_ok=True)
     with open(report_file, 'w') as f:
         json.dump(full_report, f, indent=2, ensure_ascii=False)
     print(f"\n📄 详细报告: {report_file}")

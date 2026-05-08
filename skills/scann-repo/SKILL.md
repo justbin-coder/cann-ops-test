@@ -7,6 +7,15 @@ description: Scans a CANN ops repository (ops-transformer / ops-cv / ops-math / 
 
 Identify operators in CANN open-source ops repos that depend on Ascend 950 hardware features, output a target list for the test team.
 
+## 首次运行前置检查（P0）
+
+激活后先检查 Python 依赖，缺失则自动安装：
+
+```bash
+python3 -c "import jinja2, pdfplumber, pypdf" 2>/dev/null \
+  || pip install -r scripts/requirements.txt
+```
+
 ## When to invoke
 
 - "用 cann-ops 扫一下 ops-transformer"
