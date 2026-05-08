@@ -19,10 +19,9 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from config import get_repo_path  # noqa: E402
 
-# 所有产物写到 CWD/950-test/，不写 skill 安装目录
-WORK_DIR = Path.cwd() / "950-test"
+# 所有产物写到 CWD/cann-ops-report/test/，不写 skill 安装目录
+WORK_DIR = Path.cwd() / "cann-ops-report/test"
 
 SOC = "ascend950"
 
@@ -35,7 +34,24 @@ def _find_set_env_sh() -> str:
     return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
 
 SET_ENV_SH = _find_set_env_sh()
-REPOS = ['ops-transformer', 'ops-cv', 'ops-math', 'ops-nn']
+
+
+def parse_repo_mapping(s: str) -> dict[str, str]:
+    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
+    out = {}
+    for entry in s.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
+        name, path = entry.split("=", 1)
+        out[name.strip()] = path.strip()
+    return out
+
+
+# REPO_PATHS 在 main() 里由 CLI 参数填入，仓内子函数通过它查路径
+REPO_PATHS: dict[str, str] = {}
 
 # PASS 判定的 stdout 模式（从 utils.py 同步）
 SUCCESS_PATTERNS = [
@@ -48,8 +64,8 @@ SUCCESS_PATTERNS = [
 
 
 def extract_ops(repo: str) -> list:
-    """从 CWD/950-scann/<repo>/_intermediate.json 读取目标算子（由 scann-repo 生成）。"""
-    intermediate = Path.cwd() / "950-scann" / repo / "_intermediate.json"
+    """从 CWD/cann-ops-report/scann/<repo>/_intermediate.json 读取目标算子（由 scann-repo 生成）。"""
+    intermediate = Path.cwd() / "cann-ops-report" / "scann" / repo / "_intermediate.json"
     if not intermediate.exists():
         raise FileNotFoundError(
             f"未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {repo}"
@@ -133,10 +149,10 @@ def run_repo_optimized(repo: str) -> dict:
     3. 一次性 install
     4. 逐个 run_example
     """
-    repo_path_str = get_repo_path(repo)
+    repo_path_str = REPO_PATHS.get(repo)
     if not repo_path_str:
-        return {"repo": repo, "status": "REPO_NOT_CONFIGURED",
-                "hint": f"请运行: python scripts/config.py set-repo {repo} <path>"}
+        return {"repo": repo, "status": "REPO_PATH_MISSING",
+                "hint": f"调用方未提供 {repo} 的本地路径（--repo-mapping）"}
     repo_path = Path(repo_path_str)
     if not repo_path.exists():
         return {"repo": repo, "status": "REPO_NOT_FOUND", "path": repo_path_str}
@@ -378,15 +394,19 @@ def generate_report(repo_results, total_time):
 
 def main():
     ap = argparse.ArgumentParser(description="Phase 1 batched runner (仓内合并 build + 仓间并发)")
-    ap.add_argument("--repo", choices=REPOS, default=None,
-                    help="只跑指定仓（场景 B）；不传则四仓并发（场景 A）")
+    ap.add_argument("--repo-mapping", required=True,
+                    help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...；"
+                         "传入一项即单仓模式，多项即仓间并发模式")
     args = ap.parse_args()
 
-    target_repos = [args.repo] if args.repo else REPOS
+    REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
+    target_repos = list(REPO_PATHS.keys())
+    if not target_repos:
+        ap.error("--repo-mapping 至少要包含一项")
 
-    print(f"📋 启动 Phase 1 优化版跑测")
-    if args.repo:
-        print(f"   策略：单仓模式（{args.repo}） + 仓内合并 build")
+    print(f"📋 启动 Phase 1 跑测")
+    if len(target_repos) == 1:
+        print(f"   策略：单仓模式（{target_repos[0]}） + 仓内合并 build")
     else:
         print(f"   策略：仓间并发({len(target_repos)}) + 仓内合并 build")
     print(f"   SOC: {SOC}")
@@ -395,7 +415,7 @@ def main():
 
     for repo in target_repos:
         ops = extract_ops(repo)
-        print(f"   {repo:20s}  {len(ops):2d} 个目标算子")
+        print(f"   {repo:20s}  {len(ops):2d} 个目标算子（path={REPO_PATHS[repo]}）")
     print()
 
     total_start = time.time()

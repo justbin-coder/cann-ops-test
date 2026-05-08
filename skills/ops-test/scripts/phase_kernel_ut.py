@@ -65,7 +65,7 @@ def main() -> int:
     args = ap.parse_args()
 
     repo_path = Path(args.repo_path)
-    intermediate = Path.cwd() / "950-scann" / args.repo / "_intermediate.json"
+    intermediate = Path.cwd() / "cann-ops-report" / "scann" / args.repo / "_intermediate.json"
     if not intermediate.exists():
         print(f"[ERROR] 未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描", file=sys.stderr)
         return 1

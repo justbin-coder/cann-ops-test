@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# 运行产物写到 CWD/950-test/（与 state.py 保持一致）
-WORK_DIR = Path.cwd() / "950-test"
+# 运行产物写到 CWD/cann-ops-report/test/（与 state.py 保持一致）
+WORK_DIR = Path.cwd() / "cann-ops-report/test"
 OUTPUTS_DIR = WORK_DIR
 LOGS_DIR = WORK_DIR / "logs"
 
@@ -129,13 +129,13 @@ def find_run_pkg(repo_path: Path) -> Optional[Path]:
 
 
 def vendor_name_for(repo: str) -> str:
-    """4 仓的 vendor 命名约定（见 docs/command_provenance.md）。"""
-    return {
-        "ops-transformer": "custom_transformer",
-        "ops-cv": "custom_cv",
-        "ops-math": "custom_math",
-        "ops-nn": "custom_nn",
-    }[repo]
+    """从仓名派生 vendor name。
+
+    约定：`ops-X` → `custom_X`（剥掉 `ops-` 前缀加 `custom_`）。
+    非 `ops-` 前缀仓名兜底为 `custom_<repo>`。
+    """
+    name = repo[4:] if repo.startswith("ops-") else repo
+    return f"custom_{name}"
 
 
 def append_ld_library_path(env: dict, repo: str, ascend_home: str) -> dict:

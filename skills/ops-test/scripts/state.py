@@ -13,9 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# 所有运行产物写到用户当前工作目录的 950-test/ 子目录。
+# 所有运行产物写到用户当前工作目录的 cann-ops-report/test/ 子目录。
 # skill 安装目录（__file__ 所在位置）不写任何输出文件。
-WORK_DIR = Path.cwd() / "950-test"
+WORK_DIR = Path.cwd() / "cann-ops-report" / "test"
 STATE_FILE = WORK_DIR / "run_state.json"
 
 VALID_STATUSES = {

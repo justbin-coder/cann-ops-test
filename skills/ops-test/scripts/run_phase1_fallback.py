@@ -7,7 +7,7 @@
 单算子串行才能识别每个算子的真实状态。
 
 CLI：
-  python3 run_phase1_fallback.py [--repos ops-transformer,ops-math,ops-nn]
+  python3 run_phase1_fallback.py --repo-mapping repo1=path1,repo2=path2,...
                                  [--statuses BUILD_FAIL,INSTALL_FAIL]
                                  [--max-workers 3]
 """
@@ -24,13 +24,30 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import load as load_state  # noqa: E402
 from utils import DEFAULT_SOC  # noqa: E402
-from config import get_repo_path  # noqa: E402
 
-# 所有产物写到 CWD/950-test/
-WORK_DIR = Path.cwd() / "950-test"
+# 所有产物写到 CWD/cann-ops-report/test/
+WORK_DIR = Path.cwd() / "cann-ops-report/test"
 OUTPUTS_DIR = WORK_DIR
 
 DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
+
+
+def parse_repo_mapping(s: str) -> dict[str, str]:
+    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
+    out: dict[str, str] = {}
+    for entry in s.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
+        name, path = entry.split("=", 1)
+        out[name.strip()] = path.strip()
+    return out
+
+
+# REPO_PATHS 在 main() 由 CLI 参数填入，跨进程通过 fork 继承
+REPO_PATHS: dict[str, str] = {}
 
 
 def pick_ops(repo: str, statuses: set[str]) -> list[str]:
@@ -46,9 +63,9 @@ def run_repo_fallback(repo: str, ops: list[str]) -> dict:
     """对一个仓的 ops 列表串行单算子跑测。子进程内 import phase_examples 直跑。"""
     from phase_examples import process_op
 
-    repo_path_str = get_repo_path(repo)
+    repo_path_str = REPO_PATHS.get(repo)
     if not repo_path_str:
-        print(f"[{repo}] SKIP: 未配置路径，请先运行 cann-ops:ops-test 完成配置", flush=True)
+        print(f"[{repo}] SKIP: 调用方未提供该仓路径（--repo-mapping）", flush=True)
         return {"repo": repo, "total_s": 0, "counts": {"SKIPPED": len(ops)}, "per_op": []}
     repo_path = Path(repo_path_str)
     t0 = time.time()
@@ -74,14 +91,17 @@ def run_repo_fallback(repo: str, ops: list[str]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--repos", default="ops-transformer,ops-math,ops-nn",
-                    help="comma-separated repos (default: 3 cascade-failed repos)")
+    ap.add_argument("--repo-mapping", required=True,
+                    help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
     ap.add_argument("--statuses", default="BUILD_FAIL,INSTALL_FAIL",
                     help="re-run ops in these phase1 statuses")
     ap.add_argument("--max-workers", type=int, default=3)
     args = ap.parse_args()
 
-    repos = [r.strip() for r in args.repos.split(",") if r.strip()]
+    REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
+    repos = list(REPO_PATHS.keys())
+    if not repos:
+        ap.error("--repo-mapping 至少要包含一项")
     statuses = {s.strip() for s in args.statuses.split(",") if s.strip()}
 
     plan = {repo: pick_ops(repo, statuses) for repo in repos}

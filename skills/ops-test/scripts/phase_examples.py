@@ -152,8 +152,8 @@ def main() -> int:
         print(f"[ERROR] repo path not found: {repo_path}", file=sys.stderr)
         return 1
 
-    # 从 CWD/950-scann/<repo>/_intermediate.json 读目标算子（由 scann-repo 生成）
-    intermediate = Path.cwd() / "950-scann" / args.repo / "_intermediate.json"
+    # 从 CWD/cann-ops-report/scann/<repo>/_intermediate.json 读目标算子（由 scann-repo 生成）
+    intermediate = Path.cwd() / "cann-ops-report" / "scann" / args.repo / "_intermediate.json"
     if not intermediate.exists():
         print(f"[ERROR] 未找到 {intermediate}，请先用 cann-ops:scann-repo 扫描 {args.repo}",
               file=sys.stderr)
