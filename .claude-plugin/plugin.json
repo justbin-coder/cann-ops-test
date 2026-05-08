@@ -5,8 +5,8 @@
   "author": {
     "name": "CANN Ops Team"
   },
-  "homepage": "https://github.com/your-org/cann-ops-plugin",
-  "repository": "https://github.com/your-org/cann-ops-plugin",
+  "homepage": "https://github.com/justbin-coder/cann-ops-test",
+  "repository": "https://github.com/justbin-coder/cann-ops-test",
   "license": "MIT",
   "keywords": ["cann", "ascend", "950", "ops", "testing", "scanning"]
 }

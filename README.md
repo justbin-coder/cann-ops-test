@@ -49,7 +49,7 @@ cann-ops-plugin/
 ### 1. 克隆
 
 ```bash
-git clone https://github.com/your-org/cann-ops-plugin.git ~/cann-ops-plugin
+git clone https://github.com/justbin-coder/cann-ops-test.git ~/cann-ops-plugin
 ```
 
 ### 2. 安装 Python 依赖
