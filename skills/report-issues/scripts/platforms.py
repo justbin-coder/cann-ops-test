@@ -22,6 +22,8 @@ _ADAPTERS = {
                                supports_labels_query=True),
     "gitee": PlatformAdapter(name="gitee", base_url="https://gitee.com",
                               supports_labels_query=False),
+    "gitcode": PlatformAdapter(name="gitcode", base_url="https://gitcode.com",
+                                supports_labels_query=False),
 }
 
 

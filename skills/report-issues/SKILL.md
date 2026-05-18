@@ -1,6 +1,6 @@
 ---
 name: report-issues
-description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub / Gitee 社区可受理的 issue 草稿，支持半自动提交。涉及"给失败算子提 issue / 向社区报告失败 / 上报 bug 给开源社区 / report failures to upstream"等用户意图时必须激活本 skill。
+description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub / Gitee / GitCode 社区可受理的 issue 草稿，支持半自动提交。涉及"给失败算子提 issue / 向社区报告失败 / 上报 bug 给开源社区 / report failures to upstream"等用户意图时必须激活本 skill。
 ---
 
 # cann-ops:report-issues
@@ -40,8 +40,8 @@ description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub /
 
 对每个圈定的仓：
 1. 命中 `CWD/cann-ops-report/issues/repos.json` 缓存 → 跳过
-2. 否则在仓路径执行 `git -C <repo_path> remote get-url origin`，正则识别 `github.com` / `gitee.com`
-3. 推不出（remote 不存在 / URL 不是这俩域名 / 内部镜像）→ `AskUserQuestion` 问 platform + owner + repo
+2. 否则在仓路径执行 `git -C <repo_path> remote get-url origin`，正则识别 `github.com` / `gitee.com` / `gitcode.com`
+3. 推不出（remote 不存在 / URL 不是上述三个域名 / 内部镜像）→ `AskUserQuestion` 问 platform + owner + repo
 4. 写回 `repos.json`
 
 ### P2 — 去重
@@ -88,13 +88,17 @@ description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub /
    - 读 `GITEE_TOKEN` env；没有 → `AskUserQuestion` 单次 prompt
    - 提交成功后 `AskUserQuestion` 询问是否写入 shell 配置（详见 token 写入流）
    - 调 `scripts.submit.submit_gitee(...)`
-3. 解析 issue URL → 写入 `state.json` + `submitted/<repo>/<id>.json`
+3. GitCode：
+   - 读 `GITCODE_TOKEN` env；没有 → `AskUserQuestion` 单次 prompt
+   - 调 `scripts.submit.submit_gitcode(...)`，**走 `api.gitcode.com/api/v5` 子域名**（`gitcode.com/api/*` 被 CloudWAF 拦截，绕不过）
+   - `labels` 传 CSV 字符串，**绝不传数组**（GitCode v5 与 Gitee v5 一致，传数组 422）
+4. 解析 issue URL → 写入 `state.json` + `submitted/<repo>/<id>.json`
 
-## Token 写入 env 流（Gitee 专用）
+## Token 写入 env 流（Gitee / GitCode）
 
-详见 `scripts/token_helper.py`。
+详见 `scripts/token_helper.py`。env var：Gitee 用 `GITEE_TOKEN`，GitCode 用 `GITCODE_TOKEN`。通过 `token_helper.env_var_for_platform(platform)` 选取。
 
-触发：用户选"你帮我提" + env 无 `GITEE_TOKEN` + 单次 prompt 提交成功后。
+触发：用户选"你帮我提" + env 无对应 token + 单次 prompt 提交成功后。
 
 ```
 AskUserQuestion:
@@ -105,9 +109,9 @@ AskUserQuestion:
      D. 不用"
 ```
 
-- 选 A/B/C：grep 目标文件是否已有 `GITEE_TOKEN=` 行
+- 选 A/B/C：grep 目标文件是否已有 `<env_var>=` 行
   - 有 → 让用户选"覆盖 / 跳过"
-  - 无 → 追加 `\nexport GITEE_TOKEN=<token>\n` 到末尾
+  - 无 → 追加 `\nexport <env_var>=<token>\n` 到末尾
   - 写后明确提示："token 以明文存储在该文件中"
 - 选 D：不动文件
 

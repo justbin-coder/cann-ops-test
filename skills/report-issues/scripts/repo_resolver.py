@@ -6,10 +6,8 @@ Strategy:
     3. Caller prompts user for manual input when both above fail.
 
 Supported URL forms:
-    https://github.com/{owner}/{repo}(.git)
-    https://gitee.com/{owner}/{repo}(.git)
-    git@github.com:{owner}/{repo}(.git)
-    git@gitee.com:{owner}/{repo}(.git)
+    https://{github.com,gitee.com,gitcode.com}/{owner}/{repo}(.git)
+    git@{github.com,gitee.com,gitcode.com}:{owner}/{repo}(.git)
 """
 from __future__ import annotations
 
@@ -26,9 +24,15 @@ from . import paths
 
 PlatformTuple = tuple[str, str, str]  # (platform, owner, repo)
 
+_HOST_TO_PLATFORM = {
+    "github.com": "github",
+    "gitee.com": "gitee",
+    "gitcode.com": "gitcode",
+}
+
 _PATTERNS = [
-    re.compile(r"^https?://(?P<host>github\.com|gitee\.com)/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
-    re.compile(r"^git@(?P<host>github\.com|gitee\.com):(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"),
+    re.compile(r"^https?://(?P<host>github\.com|gitee\.com|gitcode\.com)/(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"),
+    re.compile(r"^git@(?P<host>github\.com|gitee\.com|gitcode\.com):(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?$"),
 ]
 
 
@@ -37,9 +41,7 @@ def parse_remote_url(url: str) -> Optional[PlatformTuple]:
     for pattern in _PATTERNS:
         m = pattern.match(url.strip())
         if m:
-            host = m.group("host")
-            platform = "github" if host == "github.com" else "gitee"
-            return (platform, m.group("owner"), m.group("repo"))
+            return (_HOST_TO_PLATFORM[m.group("host")], m.group("owner"), m.group("repo"))
     return None
 
 

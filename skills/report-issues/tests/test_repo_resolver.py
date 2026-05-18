@@ -31,6 +31,18 @@ def test_parse_ssh_gitee() -> None:
     ) == ("gitee", "ascend", "ops-nn")
 
 
+def test_parse_https_gitcode() -> None:
+    assert repo_resolver.parse_remote_url(
+        "https://gitcode.com/cann/ops-nn.git"
+    ) == ("gitcode", "cann", "ops-nn")
+
+
+def test_parse_ssh_gitcode() -> None:
+    assert repo_resolver.parse_remote_url(
+        "git@gitcode.com:cann/ops-nn.git"
+    ) == ("gitcode", "cann", "ops-nn")
+
+
 def test_parse_unknown_host_returns_none() -> None:
     assert repo_resolver.parse_remote_url(
         "https://internal-mirror.example.com/team/ops.git"
