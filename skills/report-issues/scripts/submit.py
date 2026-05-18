@@ -1,7 +1,12 @@
-"""Submit issues to GitHub (via gh CLI) and Gitee (via urllib).
+"""Submit issues to GitHub (via gh CLI), Gitee, and GitCode (via urllib).
 
 GitHub: uses `gh issue create` so auth is managed by gh CLI's own login.
-Gitee: hits POST /api/v5/repos/{owner}/{repo}/issues with token in header.
+Gitee:  POST gitee.com/api/v5/repos/{owner}/{repo}/issues, token in JSON body.
+GitCode: POST api.gitcode.com/api/v5/repos/{owner}/{repo}/issues,
+         token as access_token query parameter (NOT a header — gitcode.com's
+         CloudWAF blocks /api/* on the bare domain; the api.gitcode.com
+         subdomain is the only reliable path). labels MUST be a CSV string,
+         never a JSON array (GitCode 422s on arrays — same as Gitee v5).
 
 Returns the new issue URL on success; raises RuntimeError on failure.
 """
@@ -69,5 +74,38 @@ def submit_gitee(
         raise RuntimeError(f"Gitee API HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"Gitee API network error: {e}") from e
+    result = json.loads(body_bytes.decode("utf-8"))
+    return result.get("html_url") or result.get("url") or "(missing URL in response)"
+
+
+def submit_gitcode(
+    *,
+    owner: str,
+    repo: str,
+    title: str,
+    body: str,
+    labels: list[str],
+    token: str,
+) -> str:
+    url = (f"https://api.gitcode.com/api/v5/repos/{owner}/{repo}/issues"
+           f"?access_token={token}")
+    payload: dict = {"title": title, "body": body}
+    if labels:
+        payload["labels"] = ",".join(labels)
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib_request.Request(
+        url, data=data, method="POST",
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=30) as resp:
+            body_bytes = resp.read()
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"GitCode API HTTP {e.code}: {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"GitCode API network error: {e}") from e
     result = json.loads(body_bytes.decode("utf-8"))
     return result.get("html_url") or result.get("url") or "(missing URL in response)"

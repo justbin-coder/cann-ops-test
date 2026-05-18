@@ -25,6 +25,17 @@ def test_gitee_does_not_support_labels_query() -> None:
     assert a.supports_labels_query is False
 
 
+def test_gitcode_new_issue_base() -> None:
+    a = platforms.get_adapter("gitcode")
+    assert a.new_issue_base("cann", "ops-nn") \
+        == "https://gitcode.com/cann/ops-nn/issues/new"
+
+
+def test_gitcode_does_not_support_labels_query() -> None:
+    a = platforms.get_adapter("gitcode")
+    assert a.supports_labels_query is False
+
+
 def test_unknown_platform_raises() -> None:
     with pytest.raises(ValueError, match="unknown platform"):
         platforms.get_adapter("bitbucket")
