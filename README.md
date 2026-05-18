@@ -8,6 +8,7 @@ CANN 算子全流程工具的 Claude Code 插件：**任意 ops 仓 + 任意 SOC
 |---|---|
 | `cann-ops:scann-repo` | 扫描某个 CANN ops 仓（任意名称 / 任意路径），自动识别使用了 950 硬件特性（simt / hif8 / RegBase / cube+vector fusion）的算子，输出 markdown 清单和机读 JSON |
 | `cann-ops:ops-test` | 对**任意来源**的目标算子（scann-repo 产物 / 用户列举 / 文件清单）执行 Phase 1-4 跑测，支持仓间并发 + 仓内合并 build + 单算子兜底，并产出含真实日志摘录、复现命令、950 特性归因的最终报告 |
+| `cann-ops:report-issues` | 把 `ops-test` 跑测产生的失败算子转成上游 GitHub / Gitee 社区可受理的 issue 草稿；支持默认草稿 + 自然语言决定"我自己提"或"agent 帮我提"；本地 state.json 跨多轮跑测去重 |
 
 两个 skill 解耦但能协同：
 - 想用 950 特性筛选算子？先调 scann-repo，ops-test 默认读它的产物
@@ -33,12 +34,17 @@ skill 在用户**当前工作目录（CWD）**下读写，统一使用 `cann-ops
     │       ├── summary.md         (主清单：N 个命中算子按规则分桶)
     │       ├── detail.md          (每个命中算子的文件:行号证据)
     │       └── _intermediate.json (机读 JSON，ops-test 默认从此读取目标算子)
-    └── test/                  ← ops-test 的跑测产物
-        ├── run_state.json         (算子 × phase × status × duration_s)
-        ├── logs/<repo>/<op>.phase{N}.{build,install,run}.log
-        ├── failures/<repo>/<op>.md (失败诊断)
-        ├── phase{N}_*_report.json  (过程性 JSON)
-        └── PHASE{N}_FINAL_REPORT.md (最终结构化报告)
+    ├── test/                  ← ops-test 的跑测产物
+    │   ├── run_state.json         (算子 × phase × status × duration_s)
+    │   ├── logs/<repo>/<op>.phase{N}.{build,install,run}.log
+    │   ├── failures/<repo>/<op>.md (失败诊断)
+    │   ├── phase{N}_*_report.json  (过程性 JSON)
+    │   └── PHASE{N}_FINAL_REPORT.md (最终结构化报告)
+    └── issues/                ← report-issues 的草稿与提交记录
+        ├── state.json             (已提交去重状态: repo::op::failure_type → issue_url)
+        ├── repos.json             (repo → platform/owner/repo 缓存)
+        ├── drafts/<repo>/{per_op,by_type,whole_repo}/...md
+        └── submitted/<repo>/<id>.json
 ```
 
 ## 安装
@@ -58,7 +64,7 @@ claude plugin marketplace add ./cann-ops-test
 claude plugin install cann-ops@cann-ops-test
 ```
 
-安装后**重启 Claude Code**（或 `/reload-plugins`），skill 列表里会出现 `cann-ops:scann-repo` 和 `cann-ops:ops-test`。
+安装后**重启 Claude Code**（或 `/reload-plugins`），skill 列表里会出现 `cann-ops:scann-repo`、`cann-ops:ops-test` 和 `cann-ops:report-issues`。
 
 ## 快速开始
 
