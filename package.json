@@ -1,6 +1,6 @@
 {
   "name": "cann-ops",
-  "version": "1.1.0",
-  "description": "CANN 950 算子全流程工具：仓扫描（scann-repo）+ 算子跑测（ops-test）+ 失败上报（report-issues）",
+  "version": "1.2.0",
+  "description": "CANN 950 算子全流程工具：仓扫描（scann-repo）+ 算子跑测（ops-test）+ 失败上报（report-issues）+ issue 跟踪与 FAQ（track-issues）",
   "author": "local"
 }

@@ -31,6 +31,11 @@ SOC: str = ""
 CLI_OPS: str = ""
 CLI_OPS_FILE: str = ""
 
+# track-issues retest 注入的额外参数
+BUILD_EXTRA_ARGS: str = ""
+RUN_EXTRA_ARGS: str = ""
+ENV_EXTRA: dict[str, str] = {}
+
 def _find_set_env_sh() -> str:
     ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
     if ascend_home:
@@ -40,6 +45,52 @@ def _find_set_env_sh() -> str:
     return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
 
 SET_ENV_SH = _find_set_env_sh()
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description="Phase 1 batched runner (仓内合并 build + 仓间并发)")
+    ap.add_argument("--repo-mapping", required=True,
+                    help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
+    ap.add_argument("--soc", required=True,
+                    help="目标 SOC 名称（如 ascend910b / ascend950 等）")
+    ap.add_argument("--ops", default="",
+                    help="目标算子 CSV，例如 op1,op2,op3")
+    ap.add_argument("--ops-file", default="",
+                    help="目标算子文件（.json / 一行一算子纯文本）")
+    ap.add_argument("--env-extra", default="",
+                    help="额外环境变量，K=V,K2=V2 格式；由 track-issues retest 注入")
+    ap.add_argument("--build-extra-args", default="",
+                    help="追加到 build.sh 的额外构建参数（如 -DFOO=1）")
+    ap.add_argument("--run-extra-args", default="",
+                    help="追加到 run_example 命令的额外运行参数")
+    return ap
+
+
+def _parse_env_extra(s: str) -> dict[str, str]:
+    """'K=V,L=W' → {'K': 'V', 'L': 'W'}; empty string → {}."""
+    if not s:
+        return {}
+    out = {}
+    for part in s.split(","):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            out[k.strip()] = v.strip()
+    return out
+
+
+def _compose_build_cmd(*, soc: str, ops_csv: str, build_extra_args: str = "") -> str:
+    cmd = f"bash build.sh --pkg --soc={soc} --ops={ops_csv} -j16"
+    if build_extra_args:
+        cmd += f" {build_extra_args}"
+    return cmd
+
+
+def _compose_run_cmd(*, op: str, run_extra_args: str = "") -> str:
+    cmd = f"bash build.sh --run_example {op} eager cust --vendor_name=custom"
+    if run_extra_args:
+        cmd += f" {run_extra_args}"
+    return cmd
 
 
 def parse_repo_mapping(s: str) -> dict[str, str]:
@@ -94,12 +145,15 @@ def has_examples(op_dir: Path) -> bool:
 
 def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
     """运行 shell 命令（带 set_env.sh），全量捕获日志"""
-    # 在 bash -c 里 source set_env.sh，再跑命令
     full_cmd = f"source {SET_ENV_SH} && {cmd}"
-    
+
     log_path.parent.mkdir(parents=True, exist_ok=True)
     start = time.time()
-    
+
+    # merge ENV_EXTRA into subprocess env
+    env = os.environ.copy()
+    env.update(ENV_EXTRA)
+
     try:
         proc = subprocess.run(
             ["bash", "-c", full_cmd],
@@ -107,6 +161,7 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
         timed_out = False
         exit_code = proc.returncode
@@ -194,7 +249,7 @@ def run_repo_optimized(repo: str) -> dict:
     # Step 1: 合并 build（一次性 build 全部目标算子）
     ops_csv = ",".join(buildable_ops)
     build_log = repo_log_dir / "_BATCH.phase1.build.log"
-    build_cmd = f"bash build.sh --pkg --soc={SOC} --ops={ops_csv} -j16"
+    build_cmd = _compose_build_cmd(soc=SOC, ops_csv=ops_csv, build_extra_args=BUILD_EXTRA_ARGS)
     
     print(f"[{repo}] Building {len(buildable_ops)} ops...", flush=True)
     build_t0 = time.time()
@@ -247,7 +302,7 @@ def run_repo_optimized(repo: str) -> dict:
     
     for i, op in enumerate(buildable_ops, 1):
         run_log = repo_log_dir / f"{op}.phase1.run.log"
-        run_cmd = f"bash build.sh --run_example {op} eager cust --vendor_name=custom"
+        run_cmd = _compose_run_cmd(op=op, run_extra_args=RUN_EXTRA_ARGS)
         
         run_res = run_shell(run_cmd, repo_path, run_log, timeout=300)
         
@@ -393,22 +448,16 @@ def generate_report(repo_results, total_time):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Phase 1 batched runner (仓内合并 build + 仓间并发)")
-    ap.add_argument("--repo-mapping", required=True,
-                    help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...；"
-                         "传入一项即单仓模式，多项即仓间并发模式")
-    ap.add_argument("--soc", required=True,
-                    help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
-    ap.add_argument("--ops", default="",
-                    help="目标算子 CSV，例如 op1,op2,op3。若不传则按 --ops-file → scann-repo 产物的优先级回退")
-    ap.add_argument("--ops-file", default="",
-                    help="目标算子文件（.json 含 unique_targets 列表 / 顶层 list / 一行一算子的纯文本）")
+    ap = _build_parser()
     args = ap.parse_args()
 
-    global SOC, CLI_OPS, CLI_OPS_FILE
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA
     SOC = args.soc
     CLI_OPS = args.ops
     CLI_OPS_FILE = args.ops_file
+    BUILD_EXTRA_ARGS = args.build_extra_args
+    RUN_EXTRA_ARGS = args.run_extra_args
+    ENV_EXTRA = _parse_env_extra(args.env_extra)
 
     REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
     target_repos = list(REPO_PATHS.keys())
