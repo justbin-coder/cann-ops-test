@@ -1,0 +1,111 @@
+"""Pull issue comments from GitHub (via gh CLI), Gitee v5, or GitCode v5.
+
+Returns normalized list of {"author", "role", "body", "created_at"}
+or {"status": "deleted_upstream"} / {"status": "fetch_failed", "reason": ...}
+when raise_on_error=False and error occurs.
+
+Auth:
+- GitHub: gh CLI (assumes gh auth login)
+- Gitee:  GITEE_TOKEN env var (query param)
+- GitCode: GITCODE_TOKEN env var (query param, api.gitcode.com subdomain)
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import urllib.error
+import urllib.request
+
+
+_GH_RE = re.compile(r"https?://github\.com/([^/]+)/([^/]+)/issues/(\d+)")
+_GITEE_RE = re.compile(r"https?://gitee\.com/([^/]+)/([^/]+)/issues/([^/?#]+)")
+_GITCODE_RE = re.compile(r"https?://gitcode\.com/([^/]+)/([^/]+)/issues/(\d+)")
+
+
+def fetch(issue_url: str, *, raise_on_error: bool = True):
+    """Dispatch by URL; return list of comments or {"status": ...} on known errors."""
+    m = _GH_RE.match(issue_url)
+    if m:
+        return _fetch_github(*m.groups(), raise_on_error=raise_on_error)
+    m = _GITEE_RE.match(issue_url)
+    if m:
+        return _fetch_gitee(*m.groups(), raise_on_error=raise_on_error)
+    m = _GITCODE_RE.match(issue_url)
+    if m:
+        return _fetch_gitcode(*m.groups(), raise_on_error=raise_on_error)
+    raise ValueError(f"Unsupported issue URL: {issue_url}")
+
+
+def _fetch_github(owner: str, repo: str, num: str, *, raise_on_error: bool):
+    api_path = f"repos/{owner}/{repo}/issues/{num}/comments"
+    proc = subprocess.run(
+        ["gh", "api", api_path],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0:
+        if "404" in proc.stderr or "Not Found" in proc.stderr:
+            if not raise_on_error:
+                return {"status": "deleted_upstream"}
+        if raise_on_error:
+            raise RuntimeError(f"gh api failed: {proc.stderr.strip()}")
+        return {"status": "fetch_failed", "reason": proc.stderr.strip()[:200]}
+    raw = json.loads(proc.stdout)
+    return [
+        {"author": c.get("user", {}).get("login", ""),
+         "role": c.get("author_association", ""),
+         "body": c.get("body", ""),
+         "created_at": c.get("created_at", "")}
+        for c in raw
+    ]
+
+
+def _fetch_gitee(owner: str, repo: str, num: str, *, raise_on_error: bool):
+    token = os.environ.get("GITEE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GITEE_TOKEN not set")
+    url = (f"https://gitee.com/api/v5/repos/{owner}/{repo}/issues/{num}/comments"
+           f"?access_token={token}")
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and not raise_on_error:
+            return {"status": "deleted_upstream"}
+        if raise_on_error:
+            raise RuntimeError(f"Gitee HTTP {e.code}") from e
+        return {"status": "fetch_failed", "reason": f"HTTP {e.code}"}
+    return [
+        {"author": c.get("user", {}).get("login", ""),
+         "role": c.get("user", {}).get("role", ""),
+         "body": c.get("body", ""),
+         "created_at": c.get("created_at", "")}
+        for c in raw
+    ]
+
+
+def _fetch_gitcode(owner: str, repo: str, num: str, *, raise_on_error: bool):
+    token = os.environ.get("GITCODE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GITCODE_TOKEN not set")
+    url = (f"https://api.gitcode.com/api/v5/repos/{owner}/{repo}/issues/{num}/comments"
+           f"?access_token={token}")
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and not raise_on_error:
+            return {"status": "deleted_upstream"}
+        if raise_on_error:
+            raise RuntimeError(f"GitCode HTTP {e.code}") from e
+        return {"status": "fetch_failed", "reason": f"HTTP {e.code}"}
+    return [
+        {"author": c.get("user", {}).get("login", ""),
+         "role": c.get("user", {}).get("role", ""),
+         "body": c.get("body", ""),
+         "created_at": c.get("created_at", "")}
+        for c in raw
+    ]
