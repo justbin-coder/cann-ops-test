@@ -227,6 +227,38 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 4. 输出诊断到 `CWD/cann-ops-report/test/failures/<repo>/{op}.md`：根因 + 排查建议
 5. **不修源码、不改测试**
 
+## P5.5 — FAQ Lookup（失败后自动触发）
+
+每次跑测完成、写完失败诊断后，对所有 status ∈ {BUILD_FAIL, INSTALL_FAIL, RUN_EXIT_FAIL, RUN_PATTERN_FAIL} 的算子执行：
+
+```python
+from scripts.faq_lookup import lookup_all_failed
+
+failed_ops = [
+    {"repo": repo, "op": op, "failure_type": status, "log_path": log_path}
+    for repo, op, status, log_path in failed_list
+]
+hits = lookup_all_failed(failed_ops)
+```
+
+- `hits` 为空 → 静默，不打印任何内容。
+- `hits` 非空 → 用 `AskUserQuestion` 提示：
+
+  ```
+  X 个失败算子在 FAQ 命中已知修复方案，要应用并重试吗？
+    1. ops-transformer / grouped_matmul  → [env] ASCEND_GLOBAL_LOG_LEVEL=1（来源：<issue_url>）
+    2. ops-cv / resize_bilinear_v2       → [build_flag] -DCMAKE_BUILD_TYPE=Debug
+    A. 全部应用并重试
+    B. 选择部分（请告诉我编号）
+    C. 跳过
+  ```
+
+用户选 A 或 B → 对每个命中算子调 `retest_orchestrator.retest()`（来自 track-issues skill 的共享脚本）。
+
+**重要约束**：
+- `patch` 类 fix 不在此处自动应用（避免意外修改工作区），仅在汇总里提示「FAQ 中有源码修复方案，可用 `cann-ops:track-issues` 处理」。
+- faq_lookup 内部 NEVER raise（任何异常静默 return None），不影响主跑测流程。
+
 ## 边界与禁忌
 
 - ✗ 不直接调 `bash build.sh` / 起多进程跑同仓多算子
