@@ -29,14 +29,59 @@ CANN_SET_ENV_SH = _find_set_env_sh()
 
 # SOC 不再硬编码。每个 runner 通过 --soc CLI 参数显式接收，由 skill 询问用户得到。
 
-# PASS 判定的 stdout 模式（覆盖 examples / pytest / 通用 UT 三种风格）
+# 四层日志判定（见 SKILL.md「跑测结果判定」节）：
+#   L0  exit_code != 0          → FAIL
+#   L1  STRONG_FAIL 命中         → FAIL
+#   L2  SUCCESS 命中             → PASS
+#   L3  以上均不命中             → UNCERTAIN（由 agent 后续判定）
+#
+# 只有"出现这条就 100% 是该状态"的模式才能进强信号集合。
+# 弱词（ERROR / error / failed / success）一律放 L3，避免 stderr warning 误判。
+
 SUCCESS_PATTERNS = [
-    re.compile(r"result\[\d+\]\s+is:"),       # examples 风格（QUICKSTART §5 输出样例）
+    re.compile(r"result\[\d+\]\s+is:"),                              # examples 数据输出
     re.compile(r"All tests passed"),
     re.compile(r"Test PASSED"),
-    re.compile(r"\bpassed\b", re.IGNORECASE),  # pytest 风格
+    re.compile(r"\bpassed\b", re.IGNORECASE),                        # pytest 风格
     re.compile(r"PASS\b"),
+    re.compile(r"execute samples? success", re.IGNORECASE),          # ops-transformer 风格
+    re.compile(r"Example completed successfully", re.IGNORECASE),    # ops-transformer 风格
+    re.compile(r"run .{1,80} success(?:fully)?\b", re.IGNORECASE),   # 通用 "run X success"
 ]
+
+STRONG_FAIL_PATTERNS = [
+    re.compile(r"Segmentation fault"),
+    re.compile(r"core dumped"),
+    re.compile(r"terminate called"),
+    re.compile(r"std::terminate"),
+    re.compile(r"Assertion .+ failed", re.IGNORECASE),
+    re.compile(r"\bACL ERROR\b"),
+    re.compile(r"\bEE\d{4}\b"),                                       # Ascend error code 如 EE9999
+    re.compile(r"Kernel launch failed", re.IGNORECASE),
+    re.compile(r"aclrt\w+ failed"),
+    re.compile(r"Check failed:"),
+]
+
+
+def classify_log(stdout: str, stderr: str, exit_code: int) -> tuple[str, str]:
+    """四层日志判定。
+
+    返回 (verdict, reason)，verdict ∈ {"PASS", "FAIL", "UNCERTAIN"}。
+    """
+    if exit_code != 0:
+        return "FAIL", f"exit_code={exit_code}"
+
+    combined = stdout + "\n" + stderr
+    for p in STRONG_FAIL_PATTERNS:
+        m = p.search(combined)
+        if m:
+            return "FAIL", f"strong_fail:{m.group(0)!r}"
+
+    for p in SUCCESS_PATTERNS:
+        if p.search(stdout):
+            return "PASS", "strong_pass_pattern"
+
+    return "UNCERTAIN", "no_strong_signal"
 
 
 @dataclass
@@ -50,10 +95,16 @@ class CmdResult:
     log_path: Optional[Path] = None
     timed_out: bool = False
 
+    def classify(self) -> tuple[str, str]:
+        """四层判定，返回 (verdict, reason)。"""
+        return classify_log(self.stdout, self.stderr, self.exit_code)
+
     def stdout_matches_success(self) -> bool:
+        """[deprecated] 保留向后兼容。新代码请用 classify()。"""
         return any(p.search(self.stdout) for p in SUCCESS_PATTERNS)
 
     def passed(self) -> bool:
+        """[deprecated] 保留向后兼容。新代码请用 classify()。"""
         return self.exit_code == 0 and self.stdout_matches_success()
 
 

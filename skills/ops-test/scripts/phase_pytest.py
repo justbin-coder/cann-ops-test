@@ -56,13 +56,20 @@ def process_op(repo: str, repo_path: Path, op: str, timeout: int) -> str:
     if res.timed_out:
         update_op(repo, op, "phase3", "TIMEOUT", res.duration_s, str(log))
         return "TIMEOUT"
-    if res.exit_code != 0:
-        update_op(repo, op, "phase3", "RUN_EXIT_FAIL", res.duration_s, str(log),
-                  extra={"exit_code": res.exit_code})
-        return "RUN_EXIT_FAIL"
-    if not res.stdout_matches_success():
-        update_op(repo, op, "phase3", "RUN_PATTERN_FAIL", res.duration_s, str(log))
-        return "RUN_PATTERN_FAIL"
+
+    verdict, reason = res.classify()
+
+    if verdict == "FAIL":
+        status = "RUN_EXIT_FAIL" if res.exit_code != 0 else "RUN_PATTERN_FAIL"
+        update_op(repo, op, "phase3", status, res.duration_s, str(log),
+                  extra={"exit_code": res.exit_code, "verdict_reason": reason})
+        return status
+
+    if verdict == "UNCERTAIN":
+        update_op(repo, op, "phase3", "UNCERTAIN", res.duration_s, str(log),
+                  extra={"exit_code": res.exit_code, "verdict_reason": reason,
+                         "note": "exit==0 but no strong pass/fail signal — agent review needed"})
+        return "UNCERTAIN"
 
     update_op(repo, op, "phase3", "PASS", res.duration_s, str(log))
     return "PASS"

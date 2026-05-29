@@ -110,14 +110,8 @@ def parse_repo_mapping(s: str) -> dict[str, str]:
 # REPO_PATHS 在 main() 里由 CLI 参数填入，仓内子函数通过它查路径
 REPO_PATHS: dict[str, str] = {}
 
-# PASS 判定的 stdout 模式（从 utils.py 同步）
-SUCCESS_PATTERNS = [
-    re.compile(r"result\[\d+\]\s+is:"),
-    re.compile(r"All tests passed"),
-    re.compile(r"Test PASSED"),
-    re.compile(r"\bpassed\b", re.IGNORECASE),
-    re.compile(r"PASS\b"),
-]
+# 判定逻辑统一来自 utils.py（避免漂移）
+from utils import classify_log  # noqa: E402
 
 
 def extract_ops(repo: str) -> list:
@@ -190,10 +184,6 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
         "stderr": stderr,
         "timed_out": timed_out,
     }
-
-
-def stdout_matches_success(stdout: str) -> bool:
-    return any(p.search(stdout) for p in SUCCESS_PATTERNS)
 
 
 def run_repo_optimized(repo: str) -> dict:
@@ -308,16 +298,22 @@ def run_repo_optimized(repo: str) -> dict:
         
         if run_res["timed_out"]:
             status = "TIMEOUT"
-        elif run_res["exit_code"] != 0:
-            status = "RUN_EXIT_FAIL"
-        elif not stdout_matches_success(run_res["stdout"]):
-            status = "RUN_PATTERN_FAIL"
+            verdict_reason = "timeout"
         else:
-            status = "PASS"
-            pass_count += 1
-        
+            verdict, verdict_reason = classify_log(
+                run_res["stdout"], run_res["stderr"], run_res["exit_code"]
+            )
+            if verdict == "PASS":
+                status = "PASS"
+                pass_count += 1
+            elif verdict == "UNCERTAIN":
+                status = "UNCERTAIN"
+            else:  # FAIL
+                status = "RUN_EXIT_FAIL" if run_res["exit_code"] != 0 else "RUN_PATTERN_FAIL"
+
         result["ops_status"][op] = status
-        symbol = "✅" if status == "PASS" else "❌"
+        result.setdefault("ops_verdict_reason", {})[op] = verdict_reason
+        symbol = {"PASS": "✅", "UNCERTAIN": "❓"}.get(status, "❌")
         print(f"[{repo}] [{i}/{len(buildable_ops)}] {symbol} {op}: {status}", flush=True)
     
     result["phase_durations"]["run"] = time.time() - run_t0
@@ -352,11 +348,16 @@ def sync_to_state_json(repo_results):
             "build": durations.get("build", 0) / max(1, len(ops_status)),
             "install": durations.get("install", 0) / max(1, len(ops_status)),
         }
+        verdict_reasons = r.get("ops_verdict_reason", {})
         for op, status in ops_status.items():
             extra = {"mode": "batched"}
             if status == "BUILD_FAIL":
                 extra["step"] = "build"
                 extra["log_path_hint"] = r.get("build_log")
+            if op in verdict_reasons:
+                extra["verdict_reason"] = verdict_reasons[op]
+            if status == "UNCERTAIN":
+                extra["note"] = "exit==0 but no strong pass/fail signal — agent review needed"
             update_op(repo, op, "phase1", status,
                       duration_s=per_op_share["build"] + per_op_share["install"],
                       extra=extra)

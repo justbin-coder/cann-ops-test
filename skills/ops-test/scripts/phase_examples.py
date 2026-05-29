@@ -100,14 +100,23 @@ def run_example(repo: str, repo_path: Path, op: str, timeout: int) -> tuple[bool
         update_op(repo, op, "phase1", "TIMEOUT", res.duration_s, str(log),
                   extra={"step": "run_example"})
         return False, "TIMEOUT"
-    if res.exit_code != 0:
-        update_op(repo, op, "phase1", "RUN_EXIT_FAIL", res.duration_s, str(log),
-                  extra={"step": "run_example", "exit_code": res.exit_code})
-        return False, "RUN_EXIT_FAIL"
-    if not res.stdout_matches_success():
-        update_op(repo, op, "phase1", "RUN_PATTERN_FAIL", res.duration_s, str(log),
-                  extra={"step": "run_example", "note": "exit==0 but no success pattern"})
-        return False, "RUN_PATTERN_FAIL"
+
+    verdict, reason = res.classify()
+
+    if verdict == "FAIL":
+        # exit!=0 → RUN_EXIT_FAIL；exit==0 但强失败模式命中 → RUN_PATTERN_FAIL
+        status = "RUN_EXIT_FAIL" if res.exit_code != 0 else "RUN_PATTERN_FAIL"
+        update_op(repo, op, "phase1", status, res.duration_s, str(log),
+                  extra={"step": "run_example", "exit_code": res.exit_code,
+                         "verdict_reason": reason})
+        return False, status
+
+    if verdict == "UNCERTAIN":
+        update_op(repo, op, "phase1", "UNCERTAIN", res.duration_s, str(log),
+                  extra={"step": "run_example", "exit_code": res.exit_code,
+                         "verdict_reason": reason,
+                         "note": "exit==0 but no strong pass/fail signal — agent review needed"})
+        return False, "UNCERTAIN"
 
     update_op(repo, op, "phase1", "PASS", res.duration_s, str(log))
     return True, "PASS"

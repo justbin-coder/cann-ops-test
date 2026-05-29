@@ -1,8 +1,12 @@
 """run_state.json 原子读写与状态机。
 
 状态枚举：
-  PENDING / RUNNING / PASS / BUILD_FAIL / RUN_EXIT_FAIL /
-  RUN_PATTERN_FAIL / TIMEOUT / SKIPPED_NO_ARTIFACT
+  PENDING / RUNNING / PASS / BUILD_FAIL / INSTALL_FAIL /
+  RUN_EXIT_FAIL / RUN_PATTERN_FAIL / UNCERTAIN /
+  TIMEOUT / SKIPPED_NO_ARTIFACT / SKIPPED_USER
+
+UNCERTAIN：四层日志判定 L3 兜底状态——exit==0 但既无强成功也无强失败信号。
+  跑测中不阻塞，标记后跑完由 agent 集中判定，最终落到 PASS 或 RUN_PATTERN_FAIL。
 """
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ STATE_FILE = WORK_DIR / "run_state.json"
 VALID_STATUSES = {
     "PENDING", "RUNNING", "PASS",
     "BUILD_FAIL", "INSTALL_FAIL",
-    "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL",
+    "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL", "UNCERTAIN",
     "TIMEOUT", "SKIPPED_NO_ARTIFACT", "SKIPPED_USER",
 }
 
