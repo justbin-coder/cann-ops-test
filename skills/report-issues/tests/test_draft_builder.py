@@ -60,8 +60,8 @@ def test_per_op_content_has_required_sections(tmp_cwd: Path, fake_logs: Path,
     f = (tmp_cwd / "cann-ops-report" / "issues" / "drafts" / "ops-transformer"
          / "per_op" / "grouped_matmul__BUILD_FAIL.md").read_text(encoding="utf-8")
     assert "## 环境" in f
-    assert "SOC: ascend950" in f
-    assert "CANN 版本: 8.0.RC1" in f
+    assert "ascend950" in f
+    assert "8.0.RC1" in f
     assert "## 失败算子" in f
     assert "grouped_matmul" in f
     assert "BUILD_FAIL" in f

@@ -50,38 +50,72 @@ description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub /
 - `new` → 进入 P3
 - `already_submitted` → 默认跳过，呈现"已跳过 N 项；如需重提加 --force"
 
-### P3 — 同时生成 3 种粒度草稿
+### P3 — 生成 per-op 草稿
 
-调用 `scripts.orchestrate.generate_drafts(...)`，全部写入 `CWD/cann-ops-report/issues/drafts/<repo>/`：
+每个失败算子对应一个 issue 草稿，这是开源社区的基本规范——维护者需要独立追踪、关闭、打 label，混合多算子会导致 issue 无法闭环。
 
-- `per_op/<op>__<failure_type>.md`：一算子一草稿
-- `by_type/<failure_type>.md`：按失败类型聚合
-- `whole_repo.md`：整仓一篇
+调用 `scripts.orchestrate.generate_drafts(...)`，写入 `CWD/cann-ops-report/issues/drafts/<repo>/<op>__<failure_type>.md`：
 
-每篇统一 body：环境 / 失败算子表 / 复现命令 / 错误日志摘录（grep ERROR|undefined|failed|exit=，≤80 行）/ 建议 labels。
+每篇统一 body：环境 / 复现命令 / 错误日志摘录（grep ERROR|undefined|failed|exit=，≤80 行）/ 建议 labels。
 
-### P4 — 用户选粒度
+### P4 — 草稿审阅确认
 
-`AskUserQuestion` 呈现 4 选项：
+草稿生成后，用 `AskUserQuestion` 询问：
+
 ```
-三种粒度的草稿已写到 cann-ops-report/issues/drafts/，请选：
-  A. per_op    （N 个文件）
-  B. by_type   （M 个文件）
-  C. whole_repo（每仓 1 篇）
-  D. 我先看，等下告诉你
+已为 N 个失败算子生成 issue 草稿（每算子一个）：
+
+  ops-transformer: grouped_matmul、flash_attention_score …（X 个）
+  ops-cv:          resize_bilinear_v2 …（Y 个）
+
+草稿路径：cann-ops-report/issues/drafts/
+
+  A. 直接进入提交流程
+  B. 我先看一下草稿，改好再告诉你
 ```
 
-用户后续用自然语言改稿（"把 grouped_matmul 那篇标题改成…"），skill 直接 Edit drafts/ 下对应文件。
+- 选 B → 告知草稿路径，等用户回来；用户后续用自然语言改稿（"把 grouped_matmul 那篇标题改成…"），skill 直接 Edit 对应文件
+- 选 A → 进入 P5
 
 ### P5 — 提交决策（自然语言驱动）
 
 **用户说"我自己提"**：
-1. 对选定粒度的每篇草稿构造 prefilled URL（`scripts.url_builder.build_prefilled_url(...)`）
+1. 对每篇草稿构造 prefilled URL（`scripts.url_builder.build_prefilled_url(...)`）
 2. URL ≥ 7500 字节 → 降级为"打开空白 issue 页 + 输出草稿路径"，交互里告知降级
-3. 输出 URL + 草稿路径对照表，结束
-4. **不写 state.json**，提供后置子命令 `mark-submitted`
+3. 输出 URL + 草稿路径对照表
+4. **立即用 `AskUserQuestion` 追问确认**（不等用户主动回来）：
+   ```
+   请把你提交成功的 issue URL 告诉我，我帮你写入记录（以便后续 track-issues 跟踪）。
+   每行一个，格式：<issue_url>  对应草稿：<draft_filename>
+   没有成功提交的留空即可。
+   ```
+5. 用户回复后，对每个确认的 URL 调用 `mark_submitted.mark_from_draft_path(..., status="submitted")` 写入 `state.json`（**必须带 `status="submitted"`**，供 track-issues P0 状态分组使用）；
+   同时写 `submitted/<repo>/<id>.json`（`id` 从 URL 末位数字段提取）。
+6. 汇报：「已记录 N 条，state.json 路径：`CWD/cann-ops-report/issues/state.json`」
 
 **用户说"你帮我提"**：
+
+**[提交前预览 — 必做，不可跳过]** 在对话中逐篇输出每篇草稿的完整标题 + 正文（不截断），然后用 `AskUserQuestion` 询问：
+
+```
+即将提交以下 N 篇 issue，请预览确认：
+
+━━━ [1/N] <repo> / <op_name> ━━━
+标题：<draft 实际标题>
+正文：
+<draft 完整正文>
+
+...（每篇以分隔线隔开）
+
+确认提交以上 N 篇 issue 吗？
+  A. 全部提交
+  B. 我先看/修改草稿，稍后再告诉你
+  C. 取消，本次不提交
+```
+
+- 选 B / C → 告知草稿目录路径（`cann-ops-report/issues/drafts/<repo>/`），流程结束，**不调任何 API**
+- 选 A → 继续以下平台提交步骤
+
 1. GitHub：`gh issue create --repo {o}/{r} --title ... --body-file <draft> --label ...`
    - 提交前先 `gh auth status`；未登录则 fatal "先 gh auth login"
 2. Gitee：
@@ -92,7 +126,7 @@ description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub /
    - 读 `GITCODE_TOKEN` env；没有 → `AskUserQuestion` 单次 prompt
    - 调 `scripts.submit.submit_gitcode(...)`，**走 `api.gitcode.com/api/v5` 子域名**（`gitcode.com/api/*` 被 CloudWAF 拦截，绕不过）
    - `labels` 传 CSV 字符串，**绝不传数组**（GitCode v5 与 Gitee v5 一致，传数组 422）
-4. 解析 issue URL → 写入 `state.json` + `submitted/<repo>/<id>.json`
+4. 解析 issue URL → 调 `dedup.mark_submitted(..., status="submitted")` 写入 `state.json`（**必须带 `status="submitted"`**）+ `submitted/<repo>/<id>.json`
 
 ## Token 写入 env 流（Gitee / GitCode）
 
@@ -139,5 +173,5 @@ AskUserQuestion:
 所有产物在 `CWD/cann-ops-report/issues/`：
 - `state.json` — 去重状态
 - `repos.json` — repo → (platform, owner, repo) 缓存
-- `drafts/<repo>/{per_op,by_type,whole_repo}/` — 草稿
+- `drafts/<repo>/<op>__<failure_type>.md` — 草稿（每算子一文件）
 - `submitted/<repo>/<id>.json` — 已提交记录

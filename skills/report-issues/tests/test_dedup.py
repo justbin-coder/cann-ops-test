@@ -38,6 +38,25 @@ def test_mark_overwrites_force(tmp_cwd: Path) -> None:
     assert dedup.get_record("r", "o", "BUILD_FAIL")["issue_url"] == "url2"
 
 
+def test_mark_persists_soc_when_given(tmp_cwd: Path) -> None:
+    dedup.mark_submitted(
+        repo="ops-nn", op="qbmm", failure_type="BUILD_FAIL",
+        issue_url="https://x/issues/1", phase="phase1", submitted_via="api",
+        soc="ascend950",
+    )
+    rec = dedup.get_record("ops-nn", "qbmm", "BUILD_FAIL")
+    assert rec["soc"] == "ascend950"
+
+
+def test_mark_omits_soc_when_none(tmp_cwd: Path) -> None:
+    dedup.mark_submitted(
+        repo="ops-nn", op="qbmm", failure_type="BUILD_FAIL",
+        issue_url="https://x/issues/1", phase="phase1", submitted_via="api",
+    )
+    rec = dedup.get_record("ops-nn", "qbmm", "BUILD_FAIL")
+    assert "soc" not in rec
+
+
 def test_split_new_vs_submitted(tmp_cwd: Path) -> None:
     dedup.mark_submitted(repo="r", op="o1", failure_type="BUILD_FAIL",
                           issue_url="url1", phase="phase1", submitted_via="api")

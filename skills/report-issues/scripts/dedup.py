@@ -6,7 +6,20 @@ state.json schema:
         "issue_url": "...",
         "submitted_at": "ISO8601",
         "phase": "phase1",
-        "submitted_via": "api" | "manual"
+        "submitted_via": "api" | "manual" | "track_issues_followup",
+        "soc": "ascend950" | ...,      # optional; track-issues uses it for retest
+        "status": "submitted"          # lifecycle state (see STATUS_* constants)
+          | "replied_discuss"          # community replied but no actionable fix
+          | "replied_pr_pending"       # community says PR is in progress
+          | "plan_selected"            # fix plan chosen, awaiting retest
+          | "closed_pass"              # retest passed, issue closed
+          | "closed_by_track_issues"   # alias for closed_pass (legacy)
+          | "closed_by_track_issues_partial"  # partial-PASS; follow-up opened
+          | "retest_fail"              # retest failed, still tracking
+          | "closed_upstream"          # maintainer closed it directly
+          | "deleted_upstream",        # issue 404'd
+        "last_checked_at": "ISO8601",  # when comments were last fetched
+        "parent_issue_url": "...",     # set on track_issues_followup entries
       },
       ...
     }
@@ -64,15 +77,46 @@ def mark_submitted(
     issue_url: str,
     phase: str,
     submitted_via: str,
+    soc: str | None = None,
+    status: str = "submitted",
+    parent_issue_url: str | None = None,
 ) -> None:
     data = _load()
-    data[make_key(repo, op, failure_type)] = {
+    record = {
         "issue_url": issue_url,
         "submitted_at": datetime.now().isoformat(timespec="seconds"),
         "phase": phase,
         "submitted_via": submitted_via,
+        "status": status,
     }
+    if soc:
+        record["soc"] = soc
+    if parent_issue_url:
+        record["parent_issue_url"] = parent_issue_url
+    data[make_key(repo, op, failure_type)] = record
     _atomic_save(data)
+
+
+def update_status(
+    repo: str,
+    op: str,
+    failure_type: str,
+    status: str,
+    **extra_fields,
+) -> None:
+    """Update the status (and any extra fields) of an existing record in-place."""
+    data = _load()
+    key = make_key(repo, op, failure_type)
+    if key not in data:
+        raise KeyError(f"No state.json record for key: {key}")
+    data[key]["status"] = status
+    data[key].update(extra_fields)
+    _atomic_save(data)
+
+
+def load_all() -> dict:
+    """Return a copy of the full state dict keyed by repo::op::failure_type."""
+    return _load()
 
 
 def split_new_vs_submitted(

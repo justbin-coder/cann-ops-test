@@ -20,6 +20,8 @@ def mark_from_draft_path(
     ops: list[str] | None = None,
     ops_by_type: dict[str, list[str]] | None = None,
     submitted_via: str = "manual",
+    soc: str | None = None,
+    status: str = "submitted",
 ) -> int:
     """Return number of (repo, op, failure_type) tuples marked."""
     p = Path(draft_path).resolve()
@@ -42,7 +44,8 @@ def mark_from_draft_path(
             for op in oplist:
                 dedup.mark_submitted(repo=repo, op=op, failure_type=failure_type,
                                        issue_url=issue_url, phase=phase,
-                                       submitted_via=submitted_via)
+                                       submitted_via=submitted_via, soc=soc,
+                                       status=status)
                 marked += 1
         return marked
 
@@ -57,7 +60,7 @@ def mark_from_draft_path(
         op, failure_type = stem.rsplit("__", 1)
         dedup.mark_submitted(repo=repo, op=op, failure_type=failure_type,
                                issue_url=issue_url, phase=phase,
-                               submitted_via=submitted_via)
+                               submitted_via=submitted_via, soc=soc)
         return 1
 
     if granularity == "by_type":
@@ -68,7 +71,7 @@ def mark_from_draft_path(
         for op in ops:
             dedup.mark_submitted(repo=repo, op=op, failure_type=failure_type,
                                    issue_url=issue_url, phase=phase,
-                                   submitted_via=submitted_via)
+                                   submitted_via=submitted_via, soc=soc)
             marked += 1
         return marked
 
