@@ -5,12 +5,30 @@ Returns:
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from . import paths
+except ImportError:
+    import paths  # type: ignore[no-redef]
+
 # Path to run_phase1_batched.py (sibling skill, resolved at call time)
 _RUNNER = Path(__file__).resolve().parent.parent.parent.parent / "ops-test" / "scripts" / "run_phase1_batched.py"
+
+
+def _read_op_status(repo: str, op: str) -> str | None:
+    """Return the phase1 status string from run_state.json, or None if absent."""
+    state_path = Path(paths.TEST_STATE_FILE)
+    if not state_path.exists():
+        return None
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return data["repos"][repo]["ops"][op]["phase1"]["status"]
+    except (KeyError, json.JSONDecodeError, TypeError):
+        return None
 
 
 def retest(
@@ -30,6 +48,23 @@ def retest(
 
     if not repo_path:
         return {"status": "ERROR", "detail": "context.repo_path is required for retest", "log_path": ""}
+
+    # Pre-cleanup (clean kind): run shell commands in repo_path before retest.
+    cleanup = plan.get("pre_cleanup_commands", []) or []
+    for cmd in cleanup:
+        try:
+            cp = subprocess.run(
+                cmd, shell=True, cwd=repo_path,
+                capture_output=True, text=True, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            return {"status": "ERROR",
+                    "detail": f"pre-cleanup command timed out: {cmd}",
+                    "log_path": ""}
+        if cp.returncode != 0:
+            return {"status": "ERROR",
+                    "detail": f"pre-cleanup failed (rc={cp.returncode}): {cmd}\n{cp.stderr[-500:]}",
+                    "log_path": ""}
 
     base_args = [
         python, str(_RUNNER),
@@ -53,13 +88,13 @@ def retest(
 
     combined = result.stdout + result.stderr
 
-    # Determine PASS/FAIL from runner output
-    if result.returncode == 0 and ("PASS" in combined or "passed" in combined.lower()):
-        status = "PASS"
-    elif "BUILD_FAIL" in combined or "INSTALL_FAIL" in combined or result.returncode != 0:
-        status = "FAIL"
+    # Primary: read authoritative status from run_state.json written by the runner.
+    # Fallback: if state file is absent (e.g. runner crashed), use exit code.
+    op_status = _read_op_status(repo, op)
+    if op_status is not None:
+        status = "PASS" if op_status == "PASS" else "FAIL"
     else:
-        status = "FAIL"
+        status = "PASS" if result.returncode == 0 else "FAIL"
 
     return {
         "status": status,

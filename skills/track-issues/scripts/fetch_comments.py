@@ -38,6 +38,74 @@ def fetch(issue_url: str, *, raise_on_error: bool = True):
     raise ValueError(f"Unsupported issue URL: {issue_url}")
 
 
+def fetch_issue_state(issue_url: str, *, raise_on_error: bool = True) -> dict:
+    """Return {"state": "open"|"closed", "closed_at": str|None}.
+
+    On error returns {"status": "fetch_failed", "reason": ...} when
+    raise_on_error=False, or raises RuntimeError when raise_on_error=True.
+    """
+    m = _GH_RE.match(issue_url)
+    if m:
+        return _gh_issue_state(*m.groups(), raise_on_error=raise_on_error)
+    m = _GITEE_RE.match(issue_url)
+    if m:
+        return _gitee_issue_state(*m.groups(), raise_on_error=raise_on_error)
+    m = _GITCODE_RE.match(issue_url)
+    if m:
+        return _gitcode_issue_state(*m.groups(), raise_on_error=raise_on_error)
+    raise ValueError(f"Unsupported issue URL: {issue_url}")
+
+
+def _gh_issue_state(owner: str, repo: str, num: str, *, raise_on_error: bool) -> dict:
+    proc = subprocess.run(
+        ["gh", "api", f"repos/{owner}/{repo}/issues/{num}"],
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0:
+        if raise_on_error:
+            raise RuntimeError(f"gh api failed: {proc.stderr.strip()}")
+        return {"status": "fetch_failed", "reason": proc.stderr.strip()[:200]}
+    raw = json.loads(proc.stdout)
+    return {"state": raw.get("state", "open"), "closed_at": raw.get("closed_at")}
+
+
+def _gitee_issue_state(owner: str, repo: str, num: str, *, raise_on_error: bool) -> dict:
+    token = os.environ.get("GITEE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GITEE_TOKEN not set")
+    url = (f"https://gitee.com/api/v5/repos/{owner}/{repo}/issues/{num}"
+           f"?access_token={token}")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and not raise_on_error:
+            return {"status": "fetch_failed", "reason": "HTTP 404"}
+        if raise_on_error:
+            raise RuntimeError(f"Gitee HTTP {e.code}") from e
+        return {"status": "fetch_failed", "reason": f"HTTP {e.code}"}
+    # Gitee uses "finished_at" for the closure timestamp
+    return {"state": raw.get("state", "open"), "closed_at": raw.get("finished_at")}
+
+
+def _gitcode_issue_state(owner: str, repo: str, num: str, *, raise_on_error: bool) -> dict:
+    token = os.environ.get("GITCODE_TOKEN", "")
+    if not token:
+        raise RuntimeError("GITCODE_TOKEN not set")
+    url = (f"https://api.gitcode.com/api/v5/repos/{owner}/{repo}/issues/{num}"
+           f"?access_token={token}")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as resp:
+            raw = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and not raise_on_error:
+            return {"status": "fetch_failed", "reason": "HTTP 404"}
+        if raise_on_error:
+            raise RuntimeError(f"GitCode HTTP {e.code}") from e
+        return {"status": "fetch_failed", "reason": f"HTTP {e.code}"}
+    return {"state": raw.get("state", "open"), "closed_at": raw.get("finished_at")}
+
+
 def _fetch_github(owner: str, repo: str, num: str, *, raise_on_error: bool):
     api_path = f"repos/{owner}/{repo}/issues/{num}/comments"
     proc = subprocess.run(
