@@ -66,9 +66,19 @@ python3 -c "import jinja2, pdfplumber, pypdf" 2>/dev/null \
 
 不再读任何持久化 state 文件。直接基于本会话的 API 文档路径（§3a 收集）判断：
 
-- `<api_doc_path>/whitelist_cube.md` 与 `<api_doc_path>/whitelist_vector.md` **都存在** → 询问用户"白名单已存在，是否复用？"
-  - 复用 → 直接进 §4 扫描
-  - 刷新 → 进 §3 重新抽取
+- `<api_doc_path>/whitelist_cube.md` 与 `<api_doc_path>/whitelist_vector.md` **都存在** → 用 `AskUserQuestion` 询问：
+
+  ```
+  扫描时需要知道哪些 API 属于 cube（矩阵计算）、哪些属于 vector（向量计算），
+  这份清单是上次从 Ascend C API 文档里提取好的。
+  检测到已有一份现成清单（来自 <api_doc_path>/whitelist_cube.md 等），是否直接沿用？
+
+    A. 沿用（节省时间，API 文档没更新过就选这个）
+    B. 重新从 PDF 提取（API 文档版本有更新，或上次提取有问题）
+  ```
+
+  - 选 A → 直接进 §4 扫描
+  - 选 B → 进 §3 重新抽取
 - 其中**任一缺失** → 进 §3 对话式抽取
 
 ### 3. 对话式抽取白名单
