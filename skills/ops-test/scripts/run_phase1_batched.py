@@ -19,7 +19,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from utils import resolve_ops, OpsResolutionError  # noqa: E402
+from utils import resolve_ops, OpsResolutionError, CANN_SET_ENV_SH  # noqa: E402
 
 # 所有产物写到 CWD/cann-ops-report/test/，不写 skill 安装目录
 WORK_DIR = Path.cwd() / "cann-ops-report/test"
@@ -36,15 +36,8 @@ BUILD_EXTRA_ARGS: str = ""
 RUN_EXTRA_ARGS: str = ""
 ENV_EXTRA: dict[str, str] = {}
 
-def _find_set_env_sh() -> str:
-    ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
-    if ascend_home:
-        candidate = Path(ascend_home).parent.parent / "set_env.sh"
-        if candidate.exists():
-            return str(candidate)
-    return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
-
-SET_ENV_SH = _find_set_env_sh()
+# set_env.sh 推导统一走 utils，避免双处实现漂移（修 utils 不生效的隐性坑）
+SET_ENV_SH = CANN_SET_ENV_SH
 
 
 def _build_parser() -> argparse.ArgumentParser:
