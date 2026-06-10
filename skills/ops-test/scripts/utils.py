@@ -20,9 +20,13 @@ import os as _os
 def _find_set_env_sh() -> str:
     ascend_home = _os.environ.get("ASCEND_HOME_PATH", "")
     if ascend_home:
-        candidate = Path(ascend_home).parent.parent / "set_env.sh"
-        if candidate.exists():
-            return str(candidate)
+        # 兼容两种官方安装布局：
+        #   直装:    ASCEND_HOME_PATH=/xxx/Ascend/cann-X.Y.Z       → set_env.sh 在其下
+        #   toolkit: ASCEND_HOME_PATH=/xxx/ascend-toolkit/latest/<arch> → set_env.sh 在上两级
+        for candidate in (Path(ascend_home) / "set_env.sh",
+                          Path(ascend_home).parent.parent / "set_env.sh"):
+            if candidate.exists():
+                return str(candidate)
     return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
 
 CANN_SET_ENV_SH = _find_set_env_sh()
