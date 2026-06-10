@@ -1,6 +1,6 @@
 ---
 name: ops-test
-description: 用于 CANN 算子跑测——任意 ops 仓中目标算子的 build/install/run/诊断，覆盖单算子、单仓全量、多仓并发场景，并生成跑测报告。涉及 build.sh / phase_*.py 命令、SOC 名称（ascend910b / ascend950 等）、跑测 / 续跑 / 诊断 / 重测、950 特性（hif8 / simt / regbase）等用户意图时必须激活本 skill 再行动。
+description: 用于 CANN 算子示例跑测（examples：build → install → 真机跑算子示例）——任意 ops 仓中目标算子的 build/install/run/诊断，覆盖单算子、单仓全量、多仓并发场景，并生成跑测报告。涉及 build.sh / 跑测脚本命令、SOC 名称（ascend910b / ascend950 等）、跑测 / 续跑 / 诊断 / 重测、950 特性（hif8 / simt / regbase）等用户意图时必须激活本 skill 再行动。
 ---
 
 # cann-ops:ops-test
@@ -23,7 +23,7 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 
 凡是触发以下任意一种意图，**禁止**直接调用 `bash build.sh`、`scripts/phase_*.py`、`build_out/*.run` 或自写并发脚本，**必须**先按本 skill 的工作流执行：
 
-- 跑测（"跑测 / 跑 / 验证 / 测试"）+ 任意 ops 仓 / 任意目标算子 / phase1/2/3/4
+- 跑测（"跑测 / 跑 / 验证 / 测试"）+ 任意 ops 仓 / 任意目标算子 / 示例跑测（examples，历史名 phase1）
 - 续跑 / 重跑 / 修复后重测失败算子
 - 诊断（"诊断 / 看下为什么失败 / 分析失败"）某个算子的失败日志
 - 批量跑某个仓全部目标算子 / 多仓并发跑测
@@ -122,10 +122,11 @@ ops-transformer 还没被 scann-repo 扫描过。请选择：
 
 | 场景 | 仓间并发 | 仓内并发 | 入口脚本 | 加速比 |
 |---|:---:|---|---|:---:|
-| **A. 多仓全量 phase1** | N worker ProcessPool | 合并 build（`--ops=op1,...,opN`）+ 串行 install + 逐个 run_example | `scripts/run_phase1_batched.py` | 6-10× |
-| **B. 单仓全量 phase1** | — | 同上合并 build | `scripts/run_phase1_batched.py`（mapping 只填一项） | 3-5× |
-| **C. 单算子 phase1** | — | 单算子三步 | `scripts/phase_examples.py --op <name>` | 1× |
-| **D. phase 2/3/4** | 仓间可启用 | 仓内串行（NPU 共享） | `scripts/phase_kernel_ut.py` / `phase_pytest.py` / `phase_msprof.py` | N× |
+| **A. 多仓全量示例跑测** | N worker ProcessPool | 合并 build（`--ops=op1,...,opN`）+ 串行 install + 逐个 run_example | `scripts/run_phase1_batched.py` | 6-10× |
+| **B. 单仓全量示例跑测** | — | 同上合并 build | `scripts/run_phase1_batched.py`（mapping 只填一项） | 3-5× |
+| **C. 单算子示例跑测** | — | 单算子三步 | `scripts/phase_examples.py --op <name>` | 1× |
+
+> 「示例跑测（examples）」= build → install → 真机逐算子跑 `examples/test_aclnn_*.cpp`，即历史命名的 phase1（状态文件 `run_state.json` 中仍用 `phase1` 键，保持兼容）。
 
 **禁止**：通过 `phase_examples.py --op` 起多进程跑同仓多算子（CMakeCache.txt 冲突）。
 
@@ -148,18 +149,23 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 
 | 用户意图 | 入口命令 |
 |---|---|
-| 多仓全量 phase 1 | `python3 scripts/run_phase1_batched.py --repo-mapping <r1>=<p1>,... --soc <soc> [--ops <csv> \| --ops-file <path>]` |
-| 单仓全量 phase 1 | `python3 scripts/run_phase1_batched.py --repo-mapping <repo>=<path> --soc <soc> [--ops <csv> \| --ops-file <path>]` |
-| 单算子 phase 1 | `python3 scripts/phase_examples.py --repo <name> --repo-path <path> --soc <soc> --op <op> [--ops <csv> \| --ops-file <path>]` |
+| 多仓全量示例跑测 | `python3 scripts/run_phase1_batched.py --repo-mapping <r1>=<p1>,... --soc <soc> [--ops <csv> \| --ops-file <path>]` |
+| 单仓全量示例跑测 | `python3 scripts/run_phase1_batched.py --repo-mapping <repo>=<path> --soc <soc> [--ops <csv> \| --ops-file <path>]` |
+| 单算子示例跑测 | `python3 scripts/phase_examples.py --repo <name> --repo-path <path> --soc <soc> --op <op> [--ops <csv> \| --ops-file <path>]` |
 | 合并 build 连坐兜底 | `python3 scripts/run_phase1_fallback.py --repo-mapping <r1>=<p1>,... --soc <soc>` |
-| Phase 2 OpKernel UT | `python3 scripts/phase_kernel_ut.py --repo <name> --repo-path <path> --soc <soc> [--ops <csv> \| --ops-file <path>]` |
-| Phase 3 Pytest | `python3 scripts/phase_pytest.py --repo <name> --repo-path <path> [--ops <csv> \| --ops-file <path>]` |
-| Phase 4 msprof | `python3 scripts/phase_msprof.py --repo <name> --repo-path <path> [--ops <csv> \| --ops-file <path>]` |
 | 生成跑测报告 | 见下方「最终报告生成」节 |
+
+<!-- 以下阶段暂不开放，占位保留（脚本在 scripts/ 下，待各 ops 仓 build.sh 能力对齐后恢复）：
+| Phase 2 OpKernel UT | `python3 scripts/phase_kernel_ut.py --repo <name> --repo-path <path> --soc <soc> [--ops <csv> \| --ops-file <path>]` |  ← 依赖 build.sh --opkernel_test，部分仓（如 ops-cv）不支持
+| Phase 3 Pytest | `python3 scripts/phase_pytest.py --repo <name> --repo-path <path> [--ops <csv> \| --ops-file <path>]` |  ← 依赖 per-op pytest 工程
+| Phase 4 msprof | `python3 scripts/phase_msprof.py --repo <name> --repo-path <path> [--ops <csv> \| --ops-file <path>]` |
+-->
+
+> 跑测范围当前仅「示例跑测」。涉及 kernel UT / pytest / msprof 的请求暂不受理，提示用户该阶段未开放。
 
 ## 启动协议
 
-1. **激活确认**：声明 "Using cann-ops:ops-test"，列出范围（仓 / 算子 / phase）和并发拓扑（A/B/C/D）
+1. **激活确认**：声明 "Using cann-ops:ops-test"，列出范围（仓 / 算子）和并发拓扑（A/B/C）
 2. **P0 发现/询问**：拿到 `{repo: path}` 映射并向用户确认（中文）
 3. **P0.5 算子来源**：对每个仓决定 ops 来源（scann / 用户列举 / 文件）
 4. **P1 询问 SOC**：用 `AskUserQuestion` 收集 SOC 字符串
@@ -176,7 +182,7 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 
 **续跑**：已 PASS 的算子跳过；BUILD_FAIL/INSTALL_FAIL 自动重试，`attempts` 字段累加。
 
-## 最终报告生成（Phase X 跑测全部完成后）
+## 最终报告生成（示例跑测全部完成后）
 
 **触发条件**：跑测全部完成 + 用户要求"生成报告"。不要在中途生成。
 
