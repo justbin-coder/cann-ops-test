@@ -138,7 +138,13 @@ def has_examples(op_dir: Path) -> bool:
 
 
 def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
-    """运行 shell 命令（带 set_env.sh），全量捕获日志"""
+    """运行 shell 命令（带 set_env.sh），日志逐行流式落盘。
+
+    长 build（几十分钟）期间日志文件随时可 tail；不再等命令结束才一次性写入。
+    返回结构与旧实现一致（stdout/stderr 分流，便于 classify_log）。
+    """
+    import threading
+
     full_cmd = f"source {SET_ENV_SH} && {cmd}"
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,35 +154,59 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
     env = os.environ.copy()
     env.update(ENV_EXTRA)
 
-    try:
-        proc = subprocess.run(
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    write_lock = threading.Lock()
+
+    with open(log_path, "w", encoding="utf-8", errors="replace") as logf:
+        logf.write(f"$ cd {cwd}\n$ {cmd}\n[timeout={timeout}s]\n\n--- STREAM ---\n")
+        logf.flush()
+
+        proc = subprocess.Popen(
             ["bash", "-c", full_cmd],
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            errors="replace",
             env=env,
         )
+
+        def pump(stream, sink: list[str], tag: str) -> None:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                with write_lock:
+                    logf.write(f"{tag}{line}")
+                    logf.flush()
+            stream.close()
+
+        threads = [
+            threading.Thread(target=pump, args=(proc.stdout, stdout_lines, "")),
+            threading.Thread(target=pump, args=(proc.stderr, stderr_lines, "[stderr] ")),
+        ]
+        for t in threads:
+            t.start()
+
         timed_out = False
-        exit_code = proc.returncode
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-    except subprocess.TimeoutExpired as e:
-        exit_code = 124
-        stdout = (e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")) or ""
-        stderr = (e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")) or ""
-        stderr += f"\n[TIMEOUT after {timeout}s]\n"
-        timed_out = True
-    
-    duration = time.time() - start
-    
-    # 写日志
-    log_path.write_text(
-        f"$ cd {cwd}\n$ {cmd}\n[exit={exit_code} duration={duration:.1f}s timeout={timeout}s]\n"
-        f"\n--- STDOUT ---\n{stdout}\n--- STDERR ---\n{stderr}\n",
-        encoding="utf-8", errors="replace",
-    )
-    
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            timed_out = True
+
+        for t in threads:
+            t.join()
+
+        exit_code = 124 if timed_out else proc.returncode
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        if timed_out:
+            stderr += f"\n[TIMEOUT after {timeout}s]\n"
+
+        duration = time.time() - start
+        logf.write(f"\n[exit={exit_code} duration={duration:.1f}s timeout={timeout}s]\n")
+
     return {
         "exit_code": exit_code,
         "duration_s": duration,
