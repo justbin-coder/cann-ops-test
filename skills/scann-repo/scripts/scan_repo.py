@@ -185,6 +185,8 @@ def scan_repo(
     result = {
         "repo": str(repo_root),
         "operators": operators,
+        # ops-test 的 resolve_ops() 以 unique_targets 为契约字段（命中算子名，去重排序）
+        "unique_targets": sorted(op["name"] for op in operators if op["is_target"]),
         "unlisted_ops": sorted(scanned_names - listed_names),
         "stats": {
             "total_operators": len(operators),
