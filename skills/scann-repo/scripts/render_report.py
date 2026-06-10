@@ -27,7 +27,6 @@ def _transform_intermediate(intermediate: dict) -> dict:
     The templates expect 'op.readme.support_950' but the intermediate
     has 'op.readme_status.support_950'. Also normalize other fields.
     """
-    import hashlib
     from datetime import datetime
 
     # Create a copy to avoid mutating the original
@@ -59,7 +58,6 @@ def _transform_intermediate(intermediate: dict) -> dict:
             "simt": 0,
             "hif8": 0,
             "regbase": 0,
-            "cv_fusion": 0,
         }
         for op in result["operators"]:
             if op["rules_hit"].get("simt"):
@@ -68,20 +66,11 @@ def _transform_intermediate(intermediate: dict) -> dict:
                 by_rule["hif8"] += 1
             if op["rules_hit"].get("regbase"):
                 by_rule["regbase"] += 1
-            if op["rules_hit"].get("cv_fusion"):
-                by_rule["cv_fusion"] += 1
         stats["by_rule"] = by_rule
 
     # Add scanned_at timestamp if missing
     if "scanned_at" not in result:
         result["scanned_at"] = datetime.now().isoformat()
-
-    # Add whitelist_versions if missing (generate fake hashes for now)
-    if "whitelist_versions" not in result:
-        result["whitelist_versions"] = {
-            "cube_md_sha": hashlib.sha256(b"cube_whitelist").hexdigest()[:8],
-            "vector_md_sha": hashlib.sha256(b"vector_whitelist").hexdigest()[:8],
-        }
 
     return result
 

@@ -1,6 +1,6 @@
 ---
 name: ops-test
-description: 用于 CANN 算子跑测——任意 ops 仓中目标算子的 build/install/run/诊断，覆盖单算子、单仓全量、多仓并发场景，并生成跑测报告。涉及 build.sh / phase_*.py 命令、SOC 名称（ascend910b / ascend950 等）、跑测 / 续跑 / 诊断 / 重测、950 特性（hif8 / simt / regbase / cv_fusion）等用户意图时必须激活本 skill 再行动。
+description: 用于 CANN 算子跑测——任意 ops 仓中目标算子的 build/install/run/诊断，覆盖单算子、单仓全量、多仓并发场景，并生成跑测报告。涉及 build.sh / phase_*.py 命令、SOC 名称（ascend910b / ascend950 等）、跑测 / 续跑 / 诊断 / 重测、950 特性（hif8 / simt / regbase）等用户意图时必须激活本 skill 再行动。
 ---
 
 # cann-ops:ops-test
@@ -205,7 +205,7 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 1. **失败算子三要素**：① 真实错误（grep 日志，不可凭空推断）② 完整复现命令（cd <abs-path> && bash build.sh ...）③ 带序号诊断步骤 ①②③
 2. **超长编译标记**：耗时 ≥900s 标 `⚠️ TIMEOUT`
 3. **耗时落表**：PASS 算子也带耗时
-4. **950 特性关联**：若 scann 产物存在则标注 hif8/simt/regbase/cv_fusion，**不存在则在该列写"—"，不要捏造**
+4. **950 特性关联**：若 scann 产物存在则标注 hif8/simt/regbase，**不存在则在该列写"—"，不要捏造**
 5. **不凭空推断**：日志没有的标 `(推断)` 与真实摘录严格区分
 6. **复现命令完整**：不留省略号
 
