@@ -265,10 +265,34 @@ hits = lookup_all_failed(failed_ops)
 - `patch` 类 fix 不在此处自动应用（避免意外修改工作区），仅在汇总里提示「FAQ 中有源码修复方案，可用 `cann-ops:track-issues` 处理」。
 - faq_lookup 内部 NEVER raise（任何异常静默 return None），不影响主跑测流程。
 
+## P6 — 失败算子自主探索修复（FAQ 未命中时触发）
+
+**前置条件**（全部满足才进入）：
+1. 算子失败已被复测确认（同一失败 ≥2 次，确定性失败）
+2. P5.5 FAQ lookup 未命中（已知方案优先）
+3. 用户同意进入探索（用 `AskUserQuestion` 列出失败算子，问哪些要探索）
+
+**目标**：agent 自主定位根因并尝试修复；**无论成败，过程与结论都沉淀为 issue 材料**——成功 → issue 附「已验证修复方案」（高价值）；失败 → issue 附「已排除路径」（同样有价值）。
+
+**探索流程**（每算子独立，按成本从低到高，每层验证后再升级）：
+
+1. **读证据**：失败日志 + 算子源码（op_kernel/op_host/op_api）+ examples + 对照同类 PASS 算子（如失败的 resize_bicubic 对照 PASS 的 resize_bilinear）
+2. **形成假设**：缺符号→查 vendor lib 导出与示例链接名；运行错→查 errcode 含义/输入构造；缺示例→对照同类算子的示例改写
+3. **低成本验证**：环境变量 / build 参数 / 命令行变体（不动文件）
+4. **源码级验证**：在 `git -C <repo> switch -c explore-<op>` 临时分支改示例或源码 → 复测 → **无论结果切回原分支**，diff 存档
+5. **预算**：单算子最多 5 次验证，超出即收档止损
+
+**产物**：
+- `CWD/cann-ops-report/test/explorations/<repo>/<op>.md`：根因 / 尝试1..N / 结论（SOLVED + diff/方案 或 UNSOLVED + 已排除清单）
+- 状态 `EXPLORED_SOLVED / EXPLORED_UNSOLVED` 写入 run_state（不覆盖原始失败 status）
+- report-issues 起草时自动引用本目录
+
+**红线**：临时分支不合并、跑完必恢复现场；不动 PASS 算子;NPU 串行。
+
 ## 边界与禁忌
 
 - ✗ 不直接调 `bash build.sh` / 起多进程跑同仓多算子
-- ✗ 不修改算子源码 / examples / pytest 用例
+- ✗ 不修改算子源码 / examples / pytest 用例（**唯一例外**：P6 探索的临时分支内,跑完恢复现场）
 - ✗ 不假设 SOC（必须用 `AskUserQuestion` 向用户确认）
 - ✗ 不硬编码任何仓名（仓名由用户提供，vendor_name 由仓名派生）
 - ✗ 不持久化仓路径 / 算子清单 / SOC（每次会话由 P0/P0.5/P1 重新发现/询问）

@@ -164,6 +164,7 @@ AskUserQuestion:
 | `cann-ops-report/test/run_state.json` | 强依赖 |
 | `cann-ops-report/test/logs/<repo>/<op>.phase{N}.{step}.log` | 强依赖 |
 | `cann-ops-report/test/failures/<repo>/<op>.md` | 弱依赖（"已尝试的诊断"段） |
+| `cann-ops-report/test/explorations/<repo>/<op>.md` | 弱依赖（ops-test P6 探索产物：SOLVED → 草稿加「已验证修复方案」段附 diff/方案；UNSOLVED → 加「已排除路径」段） |
 | `cann-ops-report/scann/<repo>/_intermediate.json` | 弱依赖（950 特性命中、is_delegated） |
 | `git -C <repo_path> remote get-url origin` | 弱依赖（platform 推断） |
 | `$ASCEND_HOME_PATH/version.info` | 弱依赖（CANN 版本） |
