@@ -3,7 +3,7 @@ scan_repo.py - Stage 1 Orchestrator
 
 Coordinates all scanning modules to produce the intermediate JSON with:
 - Loaded operator list from op_list.md
-- For each operator: rules scan, cv_fusion scan, README parse, inconsistency detection
+- For each operator: rules scan, README parse, inconsistency detection
 - Unlisted operators detection
 - Statistics and warnings
 """
@@ -14,8 +14,7 @@ import json
 
 from scripts.op_list_parser import parse_op_list
 from scripts.readme_parser import parse_readme_support_950
-from scripts.rules import scan_simple_rules, scan_cv_fusion
-from scripts.whitelist_loader import load_whitelist, build_pattern
+from scripts.rules import scan_simple_rules
 
 
 def has_delegation_indicators(op_dir: Path) -> bool:
@@ -31,8 +30,6 @@ def has_delegation_indicators(op_dir: Path) -> bool:
 def scan_repo(
     repo_root: Path,
     op_list_path: Path,
-    whitelist_cube: Path,
-    whitelist_vector: Path,
 ) -> Dict[str, Any]:
     """
     Orchestrate the complete scan of a repo.
@@ -40,8 +37,6 @@ def scan_repo(
     Args:
         repo_root: Root directory of the repo (where attention/ lives)
         op_list_path: Path to docs/zh/op_list.md
-        whitelist_cube: Path to whitelist_cube.md
-        whitelist_vector: Path to whitelist_vector.md
 
     Returns:
         Intermediate JSON dict with structure:
@@ -60,7 +55,6 @@ def scan_repo(
                         "simt": [Hit, ...],
                         "hif8": [Hit, ...],
                         "regbase": [Hit, ...],
-                        "cv_fusion": {"cube": [...], "vector": [...]} or None,
                     },
                     "inconsistency": str or None,
                     "missing_dir": bool (optional - True if operator directory doesn't exist),
@@ -79,12 +73,6 @@ def scan_repo(
     """
     repo_root = Path(repo_root)
     op_list_path = Path(op_list_path)
-
-    # Load whitelists and build patterns
-    cube_names = load_whitelist(whitelist_cube)
-    vector_names = load_whitelist(whitelist_vector)
-    cube_pattern = build_pattern(cube_names)
-    vector_pattern = build_pattern(vector_names)
 
     # Parse op_list.md
     ops_listed = parse_op_list(op_list_path)
@@ -108,7 +96,6 @@ def scan_repo(
                 "simt": [],
                 "hif8": [],
                 "regbase": [],
-                "cv_fusion": None,
             },
             "inconsistency": None,
         }
@@ -148,20 +135,11 @@ def scan_repo(
             {"file": h.file, "line": h.line, "match": h.match} for h in simple_hits["regbase"]
         ]
 
-        # Scan cv_fusion
-        cv_result = scan_cv_fusion(op_dir, cube_pattern, vector_pattern)
-        if cv_result:
-            op_result["rules_hit"]["cv_fusion"] = {
-                "cube": [{"file": h.file, "line": h.line, "match": h.match} for h in cv_result["cube"]],
-                "vector": [{"file": h.file, "line": h.line, "match": h.match} for h in cv_result["vector"]],
-            }
-
         # Determine if it's a target (any rule hit)
         has_any_hit = (
             bool(simple_hits["simt"])
             or bool(simple_hits["hif8"])
             or bool(simple_hits["regbase"])
-            or cv_result is not None
         )
         op_result["is_target"] = has_any_hit
 
@@ -205,8 +183,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("repo_root", help="Root directory of the repository")
     parser.add_argument("--op-list", required=True, help="Path to op_list.md")
-    parser.add_argument("--whitelist-cube", required=True, help="Path to whitelist_cube.md")
-    parser.add_argument("--whitelist-vector", required=True, help="Path to whitelist_vector.md")
     parser.add_argument("--output", required=True, help="Output path for intermediate.json")
 
     args = parser.parse_args()
@@ -214,8 +190,6 @@ if __name__ == "__main__":
     result = scan_repo(
         repo_root=Path(args.repo_root),
         op_list_path=Path(args.op_list),
-        whitelist_cube=Path(args.whitelist_cube),
-        whitelist_vector=Path(args.whitelist_vector),
     )
 
     output_path = Path(args.output)

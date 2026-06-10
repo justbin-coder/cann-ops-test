@@ -2,8 +2,8 @@
 
 {% for op in operators if op.is_target -%}
 {%- set hit_rules = [] %}
-{%- for r in ["simt","hif8","regbase","cv_fusion"] %}
-{%- if op.rules_hit[r] %}{%- set rule_label = {"simt":"simt","hif8":"hif8","regbase":"RegBase","cv_fusion":"CV融合"}[r] %}{%- set _ = hit_rules.append(rule_label) %}{%- endif %}
+{%- for r in ["simt","hif8","regbase"] %}
+{%- if op.rules_hit[r] %}{%- set rule_label = {"simt":"simt","hif8":"hif8","regbase":"RegBase"}[r] %}{%- set _ = hit_rules.append(rule_label) %}{%- endif %}
 {%- endfor %}
 ## {{ op.name }}  ✓ {{ ", ".join(hit_rules) }}
 
@@ -20,14 +20,6 @@
 {%- endif %}
 {%- endif %}
 {%- endfor %}
-{%- if op.rules_hit.cv_fusion %}
-{%- for h in op.rules_hit.cv_fusion.cube[:5] %}
-  - **CV融合 / cube** `{{ h.file }}:{{ h.line }}` — `{{ h.match }}`
-{%- endfor %}
-{%- for h in op.rules_hit.cv_fusion.vector[:5] %}
-  - **CV融合 / vector** `{{ h.file }}:{{ h.line }}` — `{{ h.match }}`
-{%- endfor %}
-{%- endif %}
 
 {% endfor %}
 
