@@ -465,7 +465,12 @@ def generate_report(repo_results, total_time):
     WORK_DIR.mkdir(parents=True, exist_ok=True)
     with open(report_file, 'w') as f:
         json.dump(full_report, f, indent=2, ensure_ascii=False)
+
+    from state import write_summary_md
+    summary_file = write_summary_md(phase="phase1", soc=SOC)
+
     print(f"\n📄 详细报告: {report_file}")
+    print(f"📄 摘要(给人看): {summary_file}")
     print(f"⏱️  总耗时: {total_time/60:.1f} 分钟")
     
     return full_report

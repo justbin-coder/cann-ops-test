@@ -117,3 +117,41 @@ def repo_summary(repo: str, phase: str) -> dict[str, int]:
         s = op_state.get(phase, {}).get("status", "PENDING")
         counts[s] = counts.get(s, 0) + 1
     return counts
+
+
+# 失败类状态（写 SUMMARY.md 时归入"失败明细"）
+_FAIL_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL", "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL", "TIMEOUT"}
+
+
+def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
+    """把 run_state 渲染成给人看的简洁 SUMMARY.md（覆盖写，多仓各一行）。"""
+    data = load()
+    lines = [
+        "# 跑测摘要（示例跑测）",
+        "",
+        f"> 更新：{_now_iso()}" + (f" · SOC: {soc}" if soc else ""),
+        "",
+        "| 仓 | 通过 | 失败 | 跳过 | 待复核 |",
+        "|---|---|---|---|---|",
+    ]
+    fail_rows = []
+    for repo in sorted(data["repos"]):
+        ops = data["repos"][repo]["ops"]
+        cnt: dict[str, int] = {}
+        for op, st in sorted(ops.items()):
+            s = st.get(phase, {}).get("status", "PENDING")
+            cnt[s] = cnt.get(s, 0) + 1
+            if s in _FAIL_STATUSES:
+                fail_rows.append(f"| {repo} | {op} | {s} | {st[phase].get('log_path', '—')} |")
+        total = len(ops)
+        n_fail = sum(cnt.get(s, 0) for s in _FAIL_STATUSES)
+        n_skip = cnt.get("SKIPPED_NO_ARTIFACT", 0) + cnt.get("SKIPPED_USER", 0)
+        lines.append(f"| {repo} | {cnt.get('PASS', 0)}/{total} | {n_fail} | {n_skip} | {cnt.get('UNCERTAIN', 0)} |")
+
+    if fail_rows:
+        lines += ["", "## 失败明细", "", "| 仓 | 算子 | 类型 | 日志 |", "|---|---|---|---|"] + fail_rows
+    lines.append("")
+
+    out = WORK_DIR / "SUMMARY.md"
+    out.write_text("\n".join(lines), encoding="utf-8")
+    return out

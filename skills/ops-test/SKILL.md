@@ -16,8 +16,9 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 
 **输出路径**：所有运行产物写到用户当前工作目录（CWD）的 `cann-ops-report/test/` 子目录：
 - `CWD/cann-ops-report/test/run_state.json` — 算子跑测状态
+- `CWD/cann-ops-report/test/SUMMARY.md` — 每轮跑完自动生成的简洁摘要（多仓各一行 + 失败明细，给人看）
 - `CWD/cann-ops-report/test/logs/` — 每个算子的 build/install/run 日志
-- `CWD/cann-ops-report/test/PHASE{N}_FINAL_REPORT.md` — 最终报告
+- `CWD/cann-ops-report/test/PHASE{N}_FINAL_REPORT.md` — 最终报告（仅用户要求时生成）
 
 ## 强制激活规则（不可绕过）
 
