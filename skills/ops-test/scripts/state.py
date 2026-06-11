@@ -131,6 +131,10 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
         "",
         f"> 更新：{_now_iso()}" + (f" · SOC: {soc}" if soc else ""),
         "",
+        "示例跑测 = 编译算子包 → 安装 → NPU 真机跑各算子的示例程序。每仓一行：",
+        "**通过** 真机示例成功；**失败** 编译/安装/运行任一步失败；**跳过** 无示例可跑；",
+        "**待复核** 退出码 0 但无明确成败信号；**探索(解/总)** 失败算子中已探明可行方案的个数。",
+        "",
         "| 仓 | 通过 | 失败 | 跳过 | 待复核 | 探索(解/总) |",
         "|---|---|---|---|---|---|",
     ]
@@ -152,11 +156,21 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
         lines.append(f"| {repo} | {cnt.get('PASS', 0)}/{total} | {n_fail} | {n_skip} | {cnt.get('UNCERTAIN', 0)} | {exp_cell} |")
 
     if fail_rows:
-        lines += ["", "## 失败明细", "", "| 仓 | 算子 | 类型 | 日志 |", "|---|---|---|---|"] + fail_rows
+        lines += [
+            "", "## 失败明细", "",
+            "类型含义：BUILD/INSTALL_FAIL 编译/安装失败；RUN_EXIT_FAIL 示例运行退出码非 0；"
+            "RUN_PATTERN_FAIL 命中段错误等强失败信号；TIMEOUT 超时。",
+            "", "| 仓 | 算子 | 类型 | 日志 |", "|---|---|---|---|",
+        ] + fail_rows
 
     explore_rows = _collect_exploration_rows()
     if explore_rows:
-        lines += ["", "## 探索结果（P6）", "", "| 仓 | 算子 | 结论 | 方案 / 根因 |", "|---|---|---|---|"] + explore_rows
+        lines += [
+            "", "## 探索结果（P6）", "",
+            "失败复现确认后 agent 自主探索的结论。SOLVED=找到经复测验证的可行方案（多为绕开 vendor 路径的对照跑法，"
+            "证明问题在仓侧实现而非环境）；UNSOLVED=未找到方案但根因已定位。均可作社区 issue 材料。",
+            "", "| 仓 | 算子 | 结论 | 方案 / 根因 |", "|---|---|---|---|",
+        ] + explore_rows
     lines.append("")
 
     out = WORK_DIR / "SUMMARY.md"
