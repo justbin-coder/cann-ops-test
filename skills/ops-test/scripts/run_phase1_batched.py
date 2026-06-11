@@ -586,7 +586,8 @@ def main():
 
     total_time = time.time() - total_start
     generate_report(repo_results, total_time)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
