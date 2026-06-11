@@ -150,8 +150,34 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
 
     if fail_rows:
         lines += ["", "## 失败明细", "", "| 仓 | 算子 | 类型 | 日志 |", "|---|---|---|---|"] + fail_rows
+
+    explore_rows = _collect_exploration_rows()
+    if explore_rows:
+        lines += ["", "## 探索结果（P6）", "", "| 仓 | 算子 | 结论 | 方案 / 根因 |", "|---|---|---|---|"] + explore_rows
     lines.append("")
 
     out = WORK_DIR / "SUMMARY.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     return out
+
+
+def _collect_exploration_rows() -> list[str]:
+    """从 explorations/<repo>/<op>.md 抽取 P6 结论行（无产物时返回空）。"""
+    rows = []
+    root = WORK_DIR / "explorations"
+    if not root.is_dir():
+        return rows
+    for repo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        for f in sorted(repo_dir.glob("*.md")):
+            if f.name.startswith("_"):
+                continue
+            text = f.read_text(encoding="utf-8").splitlines()
+            verdict = "SOLVED" if "UNSOLVED" not in text[0] else "UNSOLVED"
+            hint = ""
+            for l in text:
+                stripped = l.lstrip("- ").strip()
+                if stripped.startswith(("方案", "修复在仓")):
+                    hint = stripped.split(":", 1)[-1].split("：", 1)[-1].strip()
+                    break
+            rows.append(f"| {repo_dir.name} | {f.stem} | {verdict} | {hint[:70]} |")
+    return rows
