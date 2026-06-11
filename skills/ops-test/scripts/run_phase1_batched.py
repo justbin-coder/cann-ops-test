@@ -130,6 +130,28 @@ def has_examples(op_dir: Path) -> bool:
     return ex.is_dir() and any(ex.rglob("test_*.cpp"))
 
 
+def _kill_process_group(proc: "subprocess.Popen") -> None:
+    """SIGTERM then SIGKILL the process group started with start_new_session.
+
+    Falls back to killing just the process if the platform lacks process groups.
+    """
+    import os as _os
+    import signal as _signal
+    try:
+        pgid = _os.getpgid(proc.pid)
+        _os.killpg(pgid, _signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            _os.killpg(pgid, _signal.SIGKILL)
+    except (ProcessLookupError, AttributeError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
     """运行 shell 命令（带 set_env.sh），日志逐行流式落盘。
 
@@ -155,6 +177,9 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
         logf.write(f"$ cd {cwd}\n$ {cmd}\n[timeout={timeout}s]\n\n--- STREAM ---\n")
         logf.flush()
 
+        # start_new_session=True puts the shell into its own process group so a
+        # timeout can kill the ENTIRE tree (make/cmake/ccec/.run, …), not just
+        # the bash wrapper — otherwise descendants leak and keep holding the NPU.
         proc = subprocess.Popen(
             ["bash", "-c", full_cmd],
             cwd=str(cwd),
@@ -163,6 +188,7 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
             text=True,
             errors="replace",
             env=env,
+            start_new_session=True,
         )
 
         def pump(stream, sink: list[str], tag: str) -> None:
@@ -184,7 +210,7 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
         try:
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            _kill_process_group(proc)
             proc.wait()
             timed_out = True
 
