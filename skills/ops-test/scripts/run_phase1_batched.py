@@ -330,7 +330,10 @@ def run_repo_optimized(repo: str) -> dict:
     print(f"[{repo}] ✓ Build done in {result['phase_durations']['build']:.0f}s", flush=True)
     
     # Step 2: 一次性 install
-    pkg_candidates = sorted((repo_path / "build_out").glob("cann-ops-*linux*.run"))
+    # 只认本次 build 产出的 .run（mtime ≥ build 开始），避免拿到上一次构建的旧包
+    all_pkgs = sorted((repo_path / "build_out").glob("cann-ops-*linux*.run"))
+    fresh_pkgs = [p for p in all_pkgs if p.stat().st_mtime >= build_t0 - 1]
+    pkg_candidates = fresh_pkgs or all_pkgs   # 没有更新的就退回全部（容错）
     install_log = repo_log_dir / "_BATCH.phase1.install.log"
     if not pkg_candidates:
         for op in buildable_ops:
@@ -338,17 +341,18 @@ def run_repo_optimized(repo: str) -> dict:
             result.setdefault("ops_log", {})[op] = str(install_log)
         result["status"] = "INSTALL_FAIL_NO_PKG"
         return result
-    
+
     pkg = pkg_candidates[-1]
     install_cmd = f"{pkg} --quiet"
-    
+
     print(f"[{repo}] Installing pkg...", flush=True)
     install_t0 = time.time()
     install_res = run_shell(install_cmd, repo_path, install_log, timeout=600)
     result["phase_durations"]["install"] = time.time() - install_t0
-    
+
     if install_res["exit_code"] != 0:
-        # fallback 不带 --quiet
+        # fallback 不带 --quiet；写独立日志，保留 --quiet 那次的失败现场
+        install_log = repo_log_dir / "_BATCH.phase1.install.fallback.log"
         install_res = run_shell(str(pkg), repo_path, install_log, timeout=600)
         if install_res["exit_code"] != 0:
             for op in buildable_ops:
@@ -387,6 +391,7 @@ def run_repo_optimized(repo: str) -> dict:
 
         result["ops_status"][op] = status
         result.setdefault("ops_log", {})[op] = str(run_log)
+        result.setdefault("ops_run_dur", {})[op] = run_res["duration_s"]
         result.setdefault("ops_verdict_reason", {})[op] = verdict_reason
         symbol = {"PASS": "✅", "UNCERTAIN": "❓"}.get(status, "❌")
         print(f"[{repo}] [{i}/{len(buildable_ops)}] {symbol} {op}: {status}", flush=True)
@@ -418,13 +423,12 @@ def sync_to_state_json(repo_results):
         init_repo(repo, list(ops_status.keys()))
         # 再逐个写状态
         durations = r.get("phase_durations", {})
-        # 平均化分摊到每个算子（合并 build 没有 per-op build 时长）
-        per_op_share = {
-            "build": durations.get("build", 0) / max(1, len(ops_status)),
-            "install": durations.get("install", 0) / max(1, len(ops_status)),
-        }
+        # 合并 build 没有 per-op build 时长，build/install 阶段按算子数平摊；
+        # run 阶段有真实 per-op 时长（ops_run_dur），优先用它。
+        share = (durations.get("build", 0) + durations.get("install", 0)) / max(1, len(ops_status))
         verdict_reasons = r.get("ops_verdict_reason", {})
         ops_log = r.get("ops_log", {})
+        ops_run_dur = r.get("ops_run_dur", {})
         for op, status in ops_status.items():
             extra = {"mode": "batched"}
             if status == "BUILD_FAIL":
@@ -433,8 +437,10 @@ def sync_to_state_json(repo_results):
                 extra["verdict_reason"] = verdict_reasons[op]
             if status == "UNCERTAIN":
                 extra["note"] = "exit==0 but no strong pass/fail signal — agent review needed"
+            # 跑到 run 阶段的算子用真实 run 时长；build/install 失败的用平摊值
+            duration = ops_run_dur[op] if op in ops_run_dur else share
             update_op(repo, op, "phase1", status,
-                      duration_s=per_op_share["build"] + per_op_share["install"],
+                      duration_s=duration,
                       log_path=ops_log.get(op),
                       extra=extra)
 
