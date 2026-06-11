@@ -63,5 +63,5 @@ def iter_repo_states():
     if root.is_dir():
         for d in sorted(root.iterdir()):
             f = d / "test" / "run_state.json"
-            if f.exists():
+            if f.is_file():
                 yield d.name, f

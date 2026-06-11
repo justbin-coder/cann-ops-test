@@ -9,7 +9,7 @@ Coordinates all scanning modules to produce the intermediate JSON with:
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, Any
 import json
 
 from scripts.op_list_parser import parse_op_list
@@ -62,6 +62,7 @@ def scan_repo(
                 },
                 ...
             ],
+            "unique_targets": [str, ...],   # sorted hit op names; ops-test 默认靶子来源
             "unlisted_ops": [str, ...],
             "stats": {
                 "total_operators": int,
