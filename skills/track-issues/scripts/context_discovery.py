@@ -55,8 +55,9 @@ def discover_soc(
 def discover_repo_path(repo: str) -> str | None:
     """Return local repo_path if discoverable from run_state.json, else None.
 
-    ops-test's run_state.json doesn't currently store repo_path either; this is
-    a forward-compatible hook. For now, callers must always ask the user.
+    Reads the per-repo `cann-ops-report/<repo>/test/run_state.json` flat schema
+    (top-level `repo_path` key). ops-test doesn't always store it, so this stays
+    a best-effort hook — callers fall back to asking the user when it returns None.
     """
     state_path = paths.repo_state_file(repo)
     if not state_path.exists():

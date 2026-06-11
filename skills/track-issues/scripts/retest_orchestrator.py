@@ -96,8 +96,10 @@ def retest(
     else:
         status = "PASS" if result.returncode == 0 else "FAIL"
 
+    # per-op run log lives under cann-ops-report/<repo>/test/logs/ (per-repo layout)
+    run_log = paths.repo_logs_dir(repo) / f"{op}.phase1.run.log"
     return {
         "status": status,
         "detail": combined[-4000:],  # last 4k chars for context
-        "log_path": "",              # runner writes per-op logs under cann-ops-report/test/logs/
+        "log_path": str(run_log) if run_log.exists() else "",
     }
