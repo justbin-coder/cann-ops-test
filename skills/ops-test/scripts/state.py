@@ -131,10 +131,11 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
         "",
         f"> 更新：{_now_iso()}" + (f" · SOC: {soc}" if soc else ""),
         "",
-        "| 仓 | 通过 | 失败 | 跳过 | 待复核 |",
-        "|---|---|---|---|---|",
+        "| 仓 | 通过 | 失败 | 跳过 | 待复核 | 探索(解/总) |",
+        "|---|---|---|---|---|---|",
     ]
     fail_rows = []
+    explore_stats = _exploration_stats()
     for repo in sorted(data["repos"]):
         ops = data["repos"][repo]["ops"]
         cnt: dict[str, int] = {}
@@ -146,7 +147,9 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
         total = len(ops)
         n_fail = sum(cnt.get(s, 0) for s in _FAIL_STATUSES)
         n_skip = cnt.get("SKIPPED_NO_ARTIFACT", 0) + cnt.get("SKIPPED_USER", 0)
-        lines.append(f"| {repo} | {cnt.get('PASS', 0)}/{total} | {n_fail} | {n_skip} | {cnt.get('UNCERTAIN', 0)} |")
+        solved, explored = explore_stats.get(repo, (0, 0))
+        exp_cell = f"{solved}/{explored}" if explored else "—"
+        lines.append(f"| {repo} | {cnt.get('PASS', 0)}/{total} | {n_fail} | {n_skip} | {cnt.get('UNCERTAIN', 0)} | {exp_cell} |")
 
     if fail_rows:
         lines += ["", "## 失败明细", "", "| 仓 | 算子 | 类型 | 日志 |", "|---|---|---|---|"] + fail_rows
@@ -159,6 +162,25 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
     out = WORK_DIR / "SUMMARY.md"
     out.write_text("\n".join(lines), encoding="utf-8")
     return out
+
+
+def _exploration_stats() -> dict[str, tuple[int, int]]:
+    """repo → (SOLVED 数, 已探索数)。无产物时为空 dict。"""
+    stats: dict[str, tuple[int, int]] = {}
+    root = WORK_DIR / "explorations"
+    if not root.is_dir():
+        return stats
+    for repo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        solved = explored = 0
+        for f in repo_dir.glob("*.md"):
+            if f.name.startswith("_"):
+                continue
+            explored += 1
+            head = f.read_text(encoding="utf-8").splitlines()[0]
+            if "UNSOLVED" not in head:
+                solved += 1
+        stats[repo_dir.name] = (solved, explored)
+    return stats
 
 
 def _collect_exploration_rows() -> list[str]:
