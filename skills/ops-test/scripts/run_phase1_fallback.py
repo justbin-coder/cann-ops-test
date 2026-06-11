@@ -47,8 +47,15 @@ def parse_repo_mapping(s: str) -> dict[str, str]:
     return out
 
 
-# REPO_PATHS 在 main() 由 CLI 参数填入，跨进程通过 fork 继承
+# REPO_PATHS 在 main() 由 CLI 参数填入；worker 通过 initializer 显式接收（spawn 安全）
 REPO_PATHS: dict[str, str] = {}
+
+
+def _init_worker(soc: str, repo_paths: dict[str, str]) -> None:
+    """在每个 worker 进程里恢复全局；fork 平台冗余、spawn 平台必需。"""
+    global SOC, REPO_PATHS
+    SOC = soc
+    REPO_PATHS = repo_paths
 
 
 def pick_ops(repo: str, statuses: set[str]) -> list[str]:
@@ -121,7 +128,9 @@ def main() -> int:
 
     t0 = time.time()
     results = []
-    with ProcessPoolExecutor(max_workers=args.max_workers) as ex:
+    with ProcessPoolExecutor(max_workers=args.max_workers,
+                             initializer=_init_worker,
+                             initargs=(SOC, dict(REPO_PATHS))) as ex:
         fut2repo = {
             ex.submit(run_repo_fallback, repo, ops): repo
             for repo, ops in plan.items() if ops

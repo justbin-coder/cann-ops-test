@@ -103,6 +103,28 @@ def parse_repo_mapping(s: str) -> dict[str, str]:
 # REPO_PATHS 在 main() 里由 CLI 参数填入，仓内子函数通过它查路径
 REPO_PATHS: dict[str, str] = {}
 
+
+def _worker_config() -> dict:
+    """打包跑测配置，传给 ProcessPool worker（spawn 平台不继承全局，必须显式传）。"""
+    return {
+        "soc": SOC, "cli_ops": CLI_OPS, "cli_ops_file": CLI_OPS_FILE,
+        "build_extra_args": BUILD_EXTRA_ARGS, "run_extra_args": RUN_EXTRA_ARGS,
+        "env_extra": ENV_EXTRA, "repo_paths": REPO_PATHS, "set_env_sh": SET_ENV_SH,
+    }
+
+
+def _init_worker(config: dict) -> None:
+    """在每个 worker 进程里恢复模块全局；fork 平台是冗余、spawn 平台是必需。"""
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH
+    SOC = config["soc"]
+    CLI_OPS = config["cli_ops"]
+    CLI_OPS_FILE = config["cli_ops_file"]
+    BUILD_EXTRA_ARGS = config["build_extra_args"]
+    RUN_EXTRA_ARGS = config["run_extra_args"]
+    ENV_EXTRA = config["env_extra"]
+    REPO_PATHS = config["repo_paths"]
+    SET_ENV_SH = config["set_env_sh"]
+
 # 判定逻辑统一来自 utils.py（避免漂移）
 from utils import classify_log  # noqa: E402
 
@@ -553,8 +575,10 @@ def main():
         except Exception as e:
             repo_results.append({"repo": target_repos[0], "status": "EXEC_ERROR", "error": str(e)})
     else:
-        # 场景 A：仓间并发 4 worker
-        with ProcessPoolExecutor(max_workers=len(target_repos)) as executor:
+        # 场景 A：仓间并发 4 worker（显式把配置注入每个 worker，spawn 平台也安全）
+        with ProcessPoolExecutor(max_workers=len(target_repos),
+                                 initializer=_init_worker,
+                                 initargs=(_worker_config(),)) as executor:
             future_to_repo = {executor.submit(run_repo_optimized, repo): repo for repo in target_repos}
             for future in as_completed(future_to_repo):
                 try:
