@@ -15,7 +15,7 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 # 所有运行产物写到用户当前工作目录的 cann-ops-report/<repo>/test/ 子目录（每仓独立）。
 # skill 安装目录（__file__ 所在位置）不写任何输出文件。
@@ -164,7 +164,7 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
             s = st.get(phase, {}).get("status", "PENDING")
             cnt[s] = cnt.get(s, 0) + 1
             if s in _FAIL_STATUSES:
-                fail_rows.append(f"| {repo} | {op} | {s} | {st[phase].get('log_path', '—')} |")
+                fail_rows.append(f"| {_md_cell(repo)} | {_md_cell(op)} | {s} | {_md_cell(st[phase].get('log_path', '—'))} |")
         total = len(ops)
         n_fail = sum(cnt.get(s, 0) for s in _FAIL_STATUSES)
         n_skip = cnt.get("SKIPPED_NO_ARTIFACT", 0) + cnt.get("SKIPPED_USER", 0)
@@ -204,38 +204,63 @@ def _exploration_dirs() -> list[Path]:
                   if (d / "test" / "explorations").is_dir())
 
 
+def _md_cell(s: str) -> str:
+    """转义 markdown 表格单元格（| 和换行会破表）。"""
+    return str(s).replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+
+def _verdict_of(f: Path) -> Optional[str]:
+    """读探索文件首行判 verdict：'SOLVED' / 'UNSOLVED' / None（空文件/读失败/畸形）。"""
+    try:
+        lines = f.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    head = lines[0] if lines else ""
+    if "UNSOLVED" in head:
+        return "UNSOLVED"
+    if "SOLVED" in head:    # 必须显式 SOLVED，畸形/空首行不算解决
+        return "SOLVED"
+    return None
+
+
+def _explore_files(expl_dir: Path):
+    """yield 该目录下非下划线开头的 *.md（探索单算子文件）。"""
+    for f in sorted(expl_dir.glob("*.md")):
+        if not f.name.startswith("_"):
+            yield f
+
+
 def _exploration_stats() -> dict[str, tuple[int, int]]:
-    """repo → (SOLVED 数, 已探索数)。无产物时为空 dict。"""
+    """repo → (SOLVED 数, 已探索数)。无产物时为空 dict；畸形文件不计入。"""
     stats: dict[str, tuple[int, int]] = {}
     for expl_dir in _exploration_dirs():
         repo = expl_dir.parent.parent.name
         solved = explored = 0
-        for f in expl_dir.glob("*.md"):
-            if f.name.startswith("_"):
+        for f in _explore_files(expl_dir):
+            v = _verdict_of(f)
+            if v is None:
                 continue
             explored += 1
-            head = f.read_text(encoding="utf-8").splitlines()[0]
-            if "UNSOLVED" not in head:
+            if v == "SOLVED":
                 solved += 1
         stats[repo] = (solved, explored)
     return stats
 
 
 def _collect_exploration_rows() -> list[str]:
-    """从 <repo>/test/explorations/<op>.md 抽取 P6 结论行（无产物时返回空）。"""
+    """从 <repo>/test/explorations/<op>.md 抽取 P6 结论行（无产物/畸形返回空/跳过）。"""
     rows = []
     for expl_dir in _exploration_dirs():
         repo = expl_dir.parent.parent.name
-        for f in sorted(expl_dir.glob("*.md")):
-            if f.name.startswith("_"):
+        for f in _explore_files(expl_dir):
+            verdict = _verdict_of(f)
+            if verdict is None:
                 continue
-            text = f.read_text(encoding="utf-8").splitlines()
-            verdict = "SOLVED" if "UNSOLVED" not in text[0] else "UNSOLVED"
             hint = ""
-            for l in text:
+            for l in f.read_text(encoding="utf-8").splitlines():
                 stripped = l.lstrip("- ").strip()
                 if stripped.startswith(("方案", "修复在仓")):
                     hint = stripped.split(":", 1)[-1].split("：", 1)[-1].strip()
                     break
-            rows.append(f"| {repo} | {f.stem} | {verdict} | {hint[:70]} |")
+            rows.append(f"| {_md_cell(repo)} | {_md_cell(f.stem)} | {verdict} | {_md_cell(hint[:70])} |")
     return rows
