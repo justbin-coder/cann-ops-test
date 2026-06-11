@@ -27,10 +27,13 @@ def _transform_intermediate(intermediate: dict) -> dict:
     The templates expect 'op.readme.support_950' but the intermediate
     has 'op.readme_status.support_950'. Also normalize other fields.
     """
+    import copy
     from datetime import datetime
 
-    # Create a copy to avoid mutating the original
-    result = {**intermediate}
+    # Deep-copy so adding template-only fields (total_ops/by_rule/scanned_at …)
+    # to result["stats"] doesn't mutate the caller's dict — write_reports writes
+    # the *original* intermediate to _intermediate.json, which must stay clean.
+    result = copy.deepcopy(intermediate)
 
     # Transform operators
     operators = []
