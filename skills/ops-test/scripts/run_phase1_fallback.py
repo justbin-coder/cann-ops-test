@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -23,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import load as load_state  # noqa: E402
+from utils import parse_repo_mapping  # noqa: E402
 
 # 汇总报告写到 CWD/cann-ops-report/（逐仓产物在 <repo>/test/）
 OUTPUTS_DIR = Path.cwd() / "cann-ops-report"
@@ -31,20 +31,6 @@ DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
 
 # SOC 由 main() 从 --soc 参数填入，跨进程通过 fork 继承
 SOC: str = ""
-
-
-def parse_repo_mapping(s: str) -> dict[str, str]:
-    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
-    out: dict[str, str] = {}
-    for entry in s.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if "=" not in entry:
-            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
-        name, path = entry.split("=", 1)
-        out[name.strip()] = path.strip()
-    return out
 
 
 # REPO_PATHS 在 main() 由 CLI 参数填入；worker 通过 initializer 显式接收（spawn 安全）
@@ -103,7 +89,7 @@ def main() -> int:
                     help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
     ap.add_argument("--soc", required=True,
                     help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
-    ap.add_argument("--statuses", default="BUILD_FAIL,INSTALL_FAIL",
+    ap.add_argument("--statuses", default=",".join(sorted(DEFAULT_STATUSES)),
                     help="re-run ops in these phase1 statuses")
     ap.add_argument("--max-workers", type=int, default=3)
     args = ap.parse_args()

@@ -283,3 +283,17 @@ def _dedupe(seq: list[str]) -> list[str]:
             seen.add(x)
             out.append(x)
     return out
+
+
+def parse_repo_mapping(s: str) -> dict:
+    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → {repo: path}。"""
+    out: dict[str, str] = {}
+    for entry in s.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
+        name, path = entry.split("=", 1)
+        out[name.strip()] = path.strip()
+    return out

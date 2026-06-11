@@ -13,13 +13,14 @@ import os
 import subprocess
 import sys
 import time
-import re
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from utils import resolve_ops, OpsResolutionError, CANN_SET_ENV_SH  # noqa: E402
+from utils import (  # noqa: E402
+    resolve_ops, OpsResolutionError, CANN_SET_ENV_SH, parse_repo_mapping,
+)
 
 # 所有产物按仓写到 CWD/cann-ops-report/<repo>/test/，不写 skill 安装目录
 REPORT_ROOT = Path.cwd() / "cann-ops-report"
@@ -86,19 +87,7 @@ def _compose_run_cmd(*, op: str, run_extra_args: str = "") -> str:
     return cmd
 
 
-def parse_repo_mapping(s: str) -> dict[str, str]:
-    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
-    out = {}
-    for entry in s.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if "=" not in entry:
-            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
-        name, path = entry.split("=", 1)
-        out[name.strip()] = path.strip()
-    return out
-
+# parse_repo_mapping 复用 utils.parse_repo_mapping（两个 runner 共用，避免重复实现）
 
 # REPO_PATHS 在 main() 里由 CLI 参数填入，仓内子函数通过它查路径
 REPO_PATHS: dict[str, str] = {}
