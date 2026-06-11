@@ -291,8 +291,8 @@ hits = lookup_all_failed(failed_ops)
 5. **预算**：单算子最多 5 次验证，超出即收档止损
 
 **产物**：
-- `CWD/cann-ops-report/<repo>/test/explorations/<op>.md`：根因 / 尝试1..N / 结论（SOLVED + diff/方案 或 UNSOLVED + 已排除清单）
-- 状态 `EXPLORED_SOLVED / EXPLORED_UNSOLVED` 写入 run_state（不覆盖原始失败 status）
+- `CWD/cann-ops-report/<repo>/test/explorations/<op>.md`：**首行必须含 `SOLVED` 或 `UNSOLVED`**（SUMMARY 据此判定，见 `scripts/state.py:_verdict_of`），其后写 根因 / 尝试1..N / 结论（SOLVED + diff/方案 或 UNSOLVED + 已排除清单）
+- 探索结论**只落这份 `.md`，不写回 run_state**——run_state 的 status 保持原始失败状态不变（`EXPLORED_*` 不是合法 run_state 状态，写入会被 `VALID_STATUSES` 拒绝）。SUMMARY 的「探索(解/总)」列由 `state.py` 扫描本目录的 `.md` 首行汇总，无需另写状态字段
 - report-issues 起草时自动引用本目录
 
 **红线**：临时分支不合并、跑完必恢复现场；不动 PASS 算子;NPU 串行。
