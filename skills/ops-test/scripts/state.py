@@ -17,10 +17,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# 所有运行产物写到用户当前工作目录的 cann-ops-report/test/ 子目录。
+# 所有运行产物写到用户当前工作目录的 cann-ops-report/<repo>/test/ 子目录（每仓独立）。
 # skill 安装目录（__file__ 所在位置）不写任何输出文件。
-WORK_DIR = Path.cwd() / "cann-ops-report" / "test"
-STATE_FILE = WORK_DIR / "run_state.json"
+REPORT_ROOT = Path.cwd() / "cann-ops-report"
+
+
+def repo_test_dir(repo: str) -> Path:
+    return REPORT_ROOT / repo / "test"
+
+
+def _state_file(repo: str) -> Path:
+    return repo_test_dir(repo) / "run_state.json"
 
 VALID_STATUSES = {
     "PENDING", "RUNNING", "PASS",
@@ -34,20 +41,33 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def load_repo(repo: str) -> dict:
+    """读单仓状态：{"created_at", "updated_at", "ops": {...}}。"""
+    f = _state_file(repo)
+    if not f.exists():
+        return {"created_at": _now_iso(), "updated_at": _now_iso(), "ops": {}}
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
 def load() -> dict:
-    if not STATE_FILE.exists():
-        return {"created_at": _now_iso(), "updated_at": _now_iso(), "repos": {}}
-    return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    """聚合视图（兼容旧 API）：扫描 cann-ops-report/*/test/run_state.json。"""
+    repos = {}
+    if REPORT_ROOT.is_dir():
+        for d in sorted(REPORT_ROOT.iterdir()):
+            if (d / "test" / "run_state.json").exists():
+                repos[d.name] = {"ops": load_repo(d.name)["ops"]}
+    return {"updated_at": _now_iso(), "repos": repos}
 
 
-def _atomic_write(data: dict) -> None:
-    """原子写：先写临时文件再 rename。"""
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".run_state.", dir=str(STATE_FILE.parent))
+def _atomic_write(repo: str, data: dict) -> None:
+    """原子写单仓状态：先写临时文件再 rename。"""
+    f = _state_file(repo)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".run_state.", dir=str(f.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, STATE_FILE)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, f)
     except Exception:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
@@ -56,8 +76,7 @@ def _atomic_write(data: dict) -> None:
 
 def init_repo(repo: str, ops: list[str]) -> None:
     """首次为某仓初始化状态，已存在的算子保留旧状态。"""
-    data = load()
-    repo_state = data["repos"].setdefault(repo, {"ops": {}})
+    repo_state = load_repo(repo)
     for op in ops:
         if op not in repo_state["ops"]:
             repo_state["ops"][op] = {
@@ -66,8 +85,8 @@ def init_repo(repo: str, ops: list[str]) -> None:
                 "phase3": {"status": "PENDING", "attempts": 0},
                 "phase4": {"status": "PENDING", "attempts": 0},
             }
-    data["updated_at"] = _now_iso()
-    _atomic_write(data)
+    repo_state["updated_at"] = _now_iso()
+    _atomic_write(repo, repo_state)
 
 
 def update_op(
@@ -85,8 +104,7 @@ def update_op(
     if phase not in {"phase1", "phase2", "phase3", "phase4"}:
         raise ValueError(f"invalid phase: {phase}")
 
-    data = load()
-    repo_state = data["repos"].setdefault(repo, {"ops": {}})
+    repo_state = load_repo(repo)
     op_state = repo_state["ops"].setdefault(op, {})
     phase_state = op_state.setdefault(phase, {"status": "PENDING", "attempts": 0})
 
@@ -100,19 +118,18 @@ def update_op(
     if extra:
         phase_state.update(extra)
 
-    data["updated_at"] = _now_iso()
-    _atomic_write(data)
+    repo_state["updated_at"] = _now_iso()
+    _atomic_write(repo, repo_state)
 
 
 def get_op(repo: str, op: str) -> dict:
-    return load()["repos"].get(repo, {}).get("ops", {}).get(op, {})
+    return load_repo(repo)["ops"].get(op, {})
 
 
 def repo_summary(repo: str, phase: str) -> dict[str, int]:
     """返回某仓某 phase 各状态计数。"""
-    data = load()
     counts: dict[str, int] = {}
-    ops = data["repos"].get(repo, {}).get("ops", {})
+    ops = load_repo(repo)["ops"]
     for op_state in ops.values():
         s = op_state.get(phase, {}).get("status", "PENDING")
         counts[s] = counts.get(s, 0) + 1
@@ -173,38 +190,43 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
         ] + explore_rows
     lines.append("")
 
-    out = WORK_DIR / "SUMMARY.md"
+    out = REPORT_ROOT / "SUMMARY.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
     return out
+
+
+def _exploration_dirs() -> list[Path]:
+    """各仓的 explorations 目录（cann-ops-report/<repo>/test/explorations）。"""
+    if not REPORT_ROOT.is_dir():
+        return []
+    return sorted(d / "test" / "explorations" for d in REPORT_ROOT.iterdir()
+                  if (d / "test" / "explorations").is_dir())
 
 
 def _exploration_stats() -> dict[str, tuple[int, int]]:
     """repo → (SOLVED 数, 已探索数)。无产物时为空 dict。"""
     stats: dict[str, tuple[int, int]] = {}
-    root = WORK_DIR / "explorations"
-    if not root.is_dir():
-        return stats
-    for repo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+    for expl_dir in _exploration_dirs():
+        repo = expl_dir.parent.parent.name
         solved = explored = 0
-        for f in repo_dir.glob("*.md"):
+        for f in expl_dir.glob("*.md"):
             if f.name.startswith("_"):
                 continue
             explored += 1
             head = f.read_text(encoding="utf-8").splitlines()[0]
             if "UNSOLVED" not in head:
                 solved += 1
-        stats[repo_dir.name] = (solved, explored)
+        stats[repo] = (solved, explored)
     return stats
 
 
 def _collect_exploration_rows() -> list[str]:
-    """从 explorations/<repo>/<op>.md 抽取 P6 结论行（无产物时返回空）。"""
+    """从 <repo>/test/explorations/<op>.md 抽取 P6 结论行（无产物时返回空）。"""
     rows = []
-    root = WORK_DIR / "explorations"
-    if not root.is_dir():
-        return rows
-    for repo_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        for f in sorted(repo_dir.glob("*.md")):
+    for expl_dir in _exploration_dirs():
+        repo = expl_dir.parent.parent.name
+        for f in sorted(expl_dir.glob("*.md")):
             if f.name.startswith("_"):
                 continue
             text = f.read_text(encoding="utf-8").splitlines()
@@ -215,5 +237,5 @@ def _collect_exploration_rows() -> list[str]:
                 if stripped.startswith(("方案", "修复在仓")):
                     hint = stripped.split(":", 1)[-1].split("：", 1)[-1].strip()
                     break
-            rows.append(f"| {repo_dir.name} | {f.stem} | {verdict} | {hint[:70]} |")
+            rows.append(f"| {repo} | {f.stem} | {verdict} | {hint[:70]} |")
     return rows

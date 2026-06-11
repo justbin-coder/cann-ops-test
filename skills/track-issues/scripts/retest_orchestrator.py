@@ -21,12 +21,12 @@ _RUNNER = Path(__file__).resolve().parent.parent.parent.parent / "ops-test" / "s
 
 def _read_op_status(repo: str, op: str) -> str | None:
     """Return the phase1 status string from run_state.json, or None if absent."""
-    state_path = Path(paths.TEST_STATE_FILE)
+    state_path = paths.repo_state_file(repo)
     if not state_path.exists():
         return None
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data["repos"][repo]["ops"][op]["phase1"]["status"]
+        return data["ops"][op]["phase1"]["status"]
     except (KeyError, json.JSONDecodeError, TypeError):
         return None
 

@@ -10,15 +10,15 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 **目标算子来源（多源）**：
 - 用户在请求里直接列出（自然语言）→ skill 转 `--ops op1,op2,...` 传给 runner
 - 用户给一个清单文件 → skill 转 `--ops-file <path>` 传给 runner
-- 默认回退到 `cann-ops:scann-repo` 的产物 `CWD/cann-ops-report/scann/<repo>/_intermediate.json`
+- 默认回退到 `cann-ops:scann-repo` 的产物 `CWD/cann-ops-report/<repo>/scann/_intermediate.json`
 
 **SOC 来源**：每次会话由 skill 询问用户得到（如 `ascend910b` / `ascend950`），不再硬编码。
 
-**输出路径**：所有运行产物写到用户当前工作目录（CWD）的 `cann-ops-report/test/` 子目录：
-- `CWD/cann-ops-report/test/run_state.json` — 算子跑测状态
-- `CWD/cann-ops-report/test/SUMMARY.md` — 每轮跑完自动生成的简洁摘要（多仓各一行 + 失败明细，给人看）
-- `CWD/cann-ops-report/test/logs/` — 每个算子的 build/install/run 日志
-- `CWD/cann-ops-report/test/PHASE{N}_FINAL_REPORT.md` — 最终报告（仅用户要求时生成）
+**输出路径**：所有运行产物按仓写到 CWD 的 `cann-ops-report/<repo>/test/` 子目录（多仓互不干扰），SUMMARY.md 在 `cann-ops-report/` 根：
+- `CWD/cann-ops-report/<repo>/test/run_state.json` — 算子跑测状态
+- `CWD/cann-ops-report/SUMMARY.md` — 每轮跑完自动生成的简洁摘要（多仓各一行 + 失败明细，给人看）
+- `CWD/cann-ops-report/<repo>/test/logs/` — 每个算子的 build/install/run 日志
+- `CWD/cann-ops-report/<repo>/test/PHASE{N}_FINAL_REPORT.md` — 最终报告（仅用户要求时生成）
 
 ## 强制激活规则（不可绕过）
 
@@ -36,7 +36,7 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 
 ### P0 — 发现并确认目标仓（中文交互）
 
-激活后**第一步**：在 CWD 下扫描已被 scann-repo 处理过的仓——找 `CWD/cann-ops-report/scann/*/_intermediate.json` 存在的子目录，每个就是一个候选仓名。
+激活后**第一步**：在 CWD 下扫描已被 scann-repo 处理过的仓——找 `CWD/cann-ops-report/*/scann/_intermediate.json` 存在的子目录，每个就是一个候选仓名。
 
 按下面三种情况之一处理：
 
@@ -48,15 +48,15 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 
    ```
    我在当前工作目录下发现这些已扫描的仓：
-     1. ops-transformer  ← cann-ops-report/scann/ops-transformer/_intermediate.json 存在
-     2. ops-cv           ← cann-ops-report/scann/ops-cv/_intermediate.json 存在
+     1. ops-transformer  ← cann-ops-report/ops-transformer/scann/_intermediate.json 存在
+     2. ops-cv           ← cann-ops-report/ops-cv/scann/_intermediate.json 存在
    还需要每个仓的本地源码路径才能跑测。请确认或补充：
      - ops-transformer：本地源码路径？
      - ops-cv：本地源码路径？
    ```
    用 `AskUserQuestion` 收集仓名 → 路径映射。
 
-3. **CWD 下没有 cann-ops-report/scann/ 目录**
+3. **CWD 下没有 cann-ops-report/<repo>/scann/ 目录**
    → 见 P0.5 第 ② 分支处理。
 
 **仓名约束**：完全自由字符串，不再有"四仓"或硬编码列表。用户写什么就用什么（vendor_name 由仓名自动派生：`ops-X` → `custom_X`）。
@@ -67,7 +67,7 @@ CANN 算子跑测的决策大脑。**只要任务涉及算子 build / install / 
 
 P0 确定仓后，**对每个目标仓**走下面的目标算子来源分支：
 
-#### ① CWD 下检测到该仓的 scann 产物（`cann-ops-report/scann/<repo>/_intermediate.json`）
+#### ① CWD 下检测到该仓的 scann 产物（`cann-ops-report/<repo>/scann/_intermediate.json`）
 
 用 `AskUserQuestion` 询问：
 
@@ -170,7 +170,7 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 2. **P0 发现/询问**：拿到 `{repo: path}` 映射并向用户确认（中文）
 3. **P0.5 算子来源**：对每个仓决定 ops 来源（scann / 用户列举 / 文件）
 4. **P1 询问 SOC**：用 `AskUserQuestion` 收集 SOC 字符串
-5. **P2 状态检查**：读 `CWD/cann-ops-report/test/run_state.json`，识别已 PASS 与 SKIPPED 算子（续跑跳过）
+5. **P2 状态检查**：读 `CWD/cann-ops-report/<repo>/test/run_state.json`，识别已 PASS 与 SKIPPED 算子（续跑跳过）
 6. **环境就绪**：runner 内部已强制 source set_env.sh，无需用户操作
 7. **执行**：起后台任务，日志 tail 到 `/tmp/phase1_*.log`
 8. **报告**：跑完后输出每仓 PASS/FAIL 汇总，按需生成最终报告
@@ -187,13 +187,13 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 
 **触发条件**：跑测全部完成 + 用户要求"生成报告"。不要在中途生成。
 
-**产出路径**：`CWD/cann-ops-report/test/PHASE{N}_FINAL_REPORT.md`
+**产出路径**：`CWD/cann-ops-report/<repo>/test/PHASE{N}_FINAL_REPORT.md`
 
 **数据来源**（按优先级）：
-1. `CWD/cann-ops-report/test/run_state.json` — 算子 × phase × status × duration_s（权威）
-2. `CWD/cann-ops-report/test/logs/<repo>/<op>.phase{N}.{step}.log` — 真实错误信息摘录
-3. `CWD/cann-ops-report/scann/<repo>/_intermediate.json` — 950 特性命中数据（**若用户没扫描就跳过此数据源**）
-4. `CWD/cann-ops-report/test/phase{N}_*_report.json` — 过程性 JSON
+1. `CWD/cann-ops-report/<repo>/test/run_state.json` — 算子 × phase × status × duration_s（权威）
+2. `CWD/cann-ops-report/<repo>/test/logs/<op>.phase{N}.{step}.log` — 真实错误信息摘录
+3. `CWD/cann-ops-report/<repo>/scann/_intermediate.json` — 950 特性命中数据（**若用户没扫描就跳过此数据源**）
+4. `CWD/cann-ops-report/<repo>/test/phase{N}_*_report.json` — 过程性 JSON
 
 **必备 6 大模块**（顺序固定）：
 
@@ -222,16 +222,16 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 3. **若 scann 产物存在** → 读 `_intermediate.json` 关联 950 特性；不存在则该维度空缺
 4. AskUserQuestion 确认报告用途 + 格式 + 核心模块
 5. **先输出大纲预案，用户审视后再落盘**
-6. Write `CWD/cann-ops-report/test/PHASE{N}_FINAL_REPORT.md`
+6. Write `CWD/cann-ops-report/<repo>/test/PHASE{N}_FINAL_REPORT.md`
 
 ## 失败诊断
 
 用户说"诊断 {op}"时：
 
-1. 读 `CWD/cann-ops-report/test/run_state.json` → 找该算子的 status / log_path
+1. 读 `CWD/cann-ops-report/<repo>/test/run_state.json` → 找该算子的 status / log_path
 2. 读 build/install/run 日志
 3. 读算子源码 `<repo>/<category>/<op>/`
-4. 输出诊断到 `CWD/cann-ops-report/test/failures/<repo>/{op}.md`：根因 + 排查建议
+4. 输出诊断到 `CWD/cann-ops-report/<repo>/test/failures/{op}.md`：根因 + 排查建议
 5. **不修源码、不改测试**
 
 ## P5.5 — FAQ Lookup（失败后自动触发）
@@ -291,7 +291,7 @@ hits = lookup_all_failed(failed_ops)
 5. **预算**：单算子最多 5 次验证，超出即收档止损
 
 **产物**：
-- `CWD/cann-ops-report/test/explorations/<repo>/<op>.md`：根因 / 尝试1..N / 结论（SOLVED + diff/方案 或 UNSOLVED + 已排除清单）
+- `CWD/cann-ops-report/<repo>/test/explorations/<op>.md`：根因 / 尝试1..N / 结论（SOLVED + diff/方案 或 UNSOLVED + 已排除清单）
 - 状态 `EXPLORED_SOLVED / EXPLORED_UNSOLVED` 写入 run_state（不覆盖原始失败 status）
 - report-issues 起草时自动引用本目录
 

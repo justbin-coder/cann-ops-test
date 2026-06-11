@@ -11,12 +11,18 @@ def test_paths_are_under_cann_ops_report_issues(tmp_cwd: Path) -> None:
     assert paths.SUBMITTED_DIR == paths.WORK_DIR / "submitted"
 
 
-def test_test_subtree_resolves_to_ops_test_outputs(tmp_cwd: Path) -> None:
-    assert paths.TEST_DIR == tmp_cwd / "cann-ops-report" / "test"
-    assert paths.TEST_STATE_FILE == paths.TEST_DIR / "run_state.json"
-    assert paths.TEST_LOGS_DIR == paths.TEST_DIR / "logs"
-    assert paths.TEST_FAILURES_DIR == paths.TEST_DIR / "failures"
+def test_per_repo_test_subtree(tmp_cwd: Path) -> None:
+    base = tmp_cwd / "cann-ops-report" / "ops-x" / "test"
+    assert paths.repo_test_dir("ops-x") == base
+    assert paths.repo_state_file("ops-x") == base / "run_state.json"
+    assert paths.repo_logs_dir("ops-x") == base / "logs"
+    assert paths.repo_failures_dir("ops-x") == base / "failures"
 
 
-def test_scann_subtree_resolves_to_scann_repo_outputs(tmp_cwd: Path) -> None:
-    assert paths.SCANN_DIR == tmp_cwd / "cann-ops-report" / "scann"
+def test_per_repo_scann_subtree(tmp_cwd: Path) -> None:
+    assert paths.repo_scann_dir("ops-x") == tmp_cwd / "cann-ops-report" / "ops-x" / "scann"
+
+
+def test_iter_repo_states(tmp_cwd: Path, fake_run_state: Path) -> None:
+    repos = [r for r, _ in paths.iter_repo_states()]
+    assert repos == ["ops-cv", "ops-transformer"]

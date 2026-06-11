@@ -24,9 +24,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import load as load_state  # noqa: E402
 
-# 所有产物写到 CWD/cann-ops-report/test/
-WORK_DIR = Path.cwd() / "cann-ops-report/test"
-OUTPUTS_DIR = WORK_DIR
+# 汇总报告写到 CWD/cann-ops-report/（逐仓产物在 <repo>/test/）
+OUTPUTS_DIR = Path.cwd() / "cann-ops-report"
 
 DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
 

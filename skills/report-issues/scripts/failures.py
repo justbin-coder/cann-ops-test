@@ -36,13 +36,14 @@ def load_failures() -> dict[str, dict[str, list[FailureRecord]]]:
     Reads CWD/cann-ops-report/test/run_state.json. Raises FileNotFoundError
     with a user-friendly message if run_state.json is absent.
     """
-    state_file = paths.TEST_STATE_FILE._resolve()
-    if not state_file.exists():
+    repo_states = list(paths.iter_repo_states())
+    if not repo_states:
         raise FileNotFoundError(
-            f"run_state.json not found at {state_file}. "
+            f"no run_state.json under {Path.cwd() / 'cann-ops-report'}/<repo>/test/. "
             f"Did you run cann-ops:ops-test first?"
         )
-    state = json.loads(state_file.read_text(encoding="utf-8"))
+    state = {"repos": {repo: json.loads(f.read_text(encoding="utf-8"))
+                       for repo, f in repo_states}}
 
     grouped: dict[str, dict[str, list[FailureRecord]]] = {}
     for repo, repo_state in state.get("repos", {}).items():

@@ -32,14 +32,9 @@ def _mock_proc(returncode: int, stdout: str = "", stderr: str = "") -> MagicMock
 
 def test_pass_when_state_shows_pass(tmp_cwd: Path) -> None:
     """After fix: reads run_state.json; op status PASS → result PASS."""
-    state = {
-        "repos": {
-            "ops-transformer": {
-                "ops": {"grouped_matmul": {"phase1": {"status": "PASS"}}}
-            }
-        }
+    state = {"ops": {"grouped_matmul": {"phase1": {"status": "PASS"}}}
     }
-    p = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
+    p = tmp_cwd / "cann-ops-report" / "ops-transformer" / "test" / "run_state.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state), encoding="utf-8")
 
@@ -52,14 +47,9 @@ def test_pass_when_state_shows_pass(tmp_cwd: Path) -> None:
 # ── FAIL path ────────────────────────────────────────────────────────────────
 
 def test_fail_when_state_shows_build_fail(tmp_cwd: Path) -> None:
-    state = {
-        "repos": {
-            "ops-transformer": {
-                "ops": {"grouped_matmul": {"phase1": {"status": "BUILD_FAIL"}}}
-            }
-        }
+    state = {"ops": {"grouped_matmul": {"phase1": {"status": "BUILD_FAIL"}}}
     }
-    p = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
+    p = tmp_cwd / "cann-ops-report" / "ops-transformer" / "test" / "run_state.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state), encoding="utf-8")
 
@@ -81,14 +71,9 @@ def test_fail_when_no_state_file_and_nonzero_rc(tmp_cwd: Path) -> None:
 
 def test_no_false_pass_from_stdout_keyword(tmp_cwd: Path) -> None:
     """PASS keyword in stdout must NOT override a FAIL in run_state.json."""
-    state = {
-        "repos": {
-            "ops-transformer": {
-                "ops": {"grouped_matmul": {"phase1": {"status": "RUN_EXIT_FAIL"}}}
-            }
-        }
+    state = {"ops": {"grouped_matmul": {"phase1": {"status": "RUN_EXIT_FAIL"}}}
     }
-    p = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
+    p = tmp_cwd / "cann-ops-report" / "ops-transformer" / "test" / "run_state.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state), encoding="utf-8")
 

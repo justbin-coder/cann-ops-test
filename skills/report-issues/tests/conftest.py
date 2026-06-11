@@ -25,53 +25,56 @@ def tmp_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
 
 @pytest.fixture
 def fake_run_state(tmp_cwd: Path) -> Path:
-    """Write a synthetic run_state.json with mixed PASS/FAIL ops."""
-    state = {
-        "created_at": "2026-05-18T10:00:00",
-        "updated_at": "2026-05-18T10:30:00",
-        "repos": {
-            "ops-transformer": {
-                "ops": {
-                    "grouped_matmul": {
-                        "phase1": {"status": "BUILD_FAIL", "attempts": 1,
-                                   "duration_s": 920.5,
-                                   "log_path": "cann-ops-report/test/logs/ops-transformer/grouped_matmul.phase1.build.log"},
-                    },
-                    "flash_attention": {
-                        "phase1": {"status": "PASS", "attempts": 1, "duration_s": 130.0},
-                    },
-                    "moe": {
-                        "phase1": {"status": "RUN_EXIT_FAIL", "attempts": 2,
-                                   "duration_s": 12.3,
-                                   "log_path": "cann-ops-report/test/logs/ops-transformer/moe.phase1.run.log"},
-                    },
-                    "topk": {
-                        "phase1": {"status": "TIMEOUT", "attempts": 1, "duration_s": 1800.0},
-                    },
-                    "pending_op": {
-                        "phase1": {"status": "PENDING", "attempts": 0},
-                    },
-                }
+    """Write per-repo run_state.json files (cann-ops-report/<repo>/test/)."""
+    per_repo = {
+        "ops-transformer": {
+            "created_at": "2026-05-18T10:00:00",
+            "updated_at": "2026-05-18T10:30:00",
+            "ops": {
+                "grouped_matmul": {
+                    "phase1": {"status": "BUILD_FAIL", "attempts": 1,
+                               "duration_s": 920.5,
+                               "log_path": "cann-ops-report/ops-transformer/test/logs/grouped_matmul.phase1.build.log"},
+                },
+                "flash_attention": {
+                    "phase1": {"status": "PASS", "attempts": 1, "duration_s": 130.0},
+                },
+                "moe": {
+                    "phase1": {"status": "RUN_EXIT_FAIL", "attempts": 2,
+                               "duration_s": 12.3,
+                               "log_path": "cann-ops-report/ops-transformer/test/logs/moe.phase1.run.log"},
+                },
+                "topk": {
+                    "phase1": {"status": "TIMEOUT", "attempts": 1, "duration_s": 1800.0},
+                },
+                "pending_op": {
+                    "phase1": {"status": "PENDING", "attempts": 0},
+                },
             },
-            "ops-cv": {
-                "ops": {
-                    "resize_bilinear": {
-                        "phase1": {"status": "BUILD_FAIL", "attempts": 1, "duration_s": 88.0},
-                    },
-                }
+        },
+        "ops-cv": {
+            "created_at": "2026-05-18T10:00:00",
+            "updated_at": "2026-05-18T10:30:00",
+            "ops": {
+                "resize_bilinear": {
+                    "phase1": {"status": "BUILD_FAIL", "attempts": 1, "duration_s": 88.0},
+                },
             },
         },
     }
-    state_file = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    return state_file
+    first = None
+    for repo, state in per_repo.items():
+        f = tmp_cwd / "cann-ops-report" / repo / "test" / "run_state.json"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        first = first or f
+    return first
 
 
 @pytest.fixture
 def fake_logs(tmp_cwd: Path) -> Path:
     """Write synthetic phase logs for grep-based extraction tests."""
-    logs_dir = tmp_cwd / "cann-ops-report" / "test" / "logs" / "ops-transformer"
+    logs_dir = tmp_cwd / "cann-ops-report" / "ops-transformer" / "test" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     (logs_dir / "grouped_matmul.phase1.build.log").write_text(
         "starting build\n"

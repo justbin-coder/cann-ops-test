@@ -17,14 +17,14 @@ description: 用于把 ops-test 跑测产生的失败算子转为上游 GitHub /
 
 ## 前置条件
 
-- **必须**已经跑过 `cann-ops:ops-test` 并产出 `CWD/cann-ops-report/test/run_state.json`
+- **必须**已经跑过 `cann-ops:ops-test` 并产出 `CWD/cann-ops-report/<repo>/test/run_state.json`
 - **可选**跑过 `cann-ops:scann-repo`：有 `_intermediate.json` 则草稿带 950 特性命中，否则该段空
 
 ## 工作流（P0–P5）
 
 ### P0 — 范围确认（中文交互）
 
-1. 读 `CWD/cann-ops-report/test/run_state.json`；不存在则 fatal："请先跑 cann-ops:ops-test"
+1. 读 `CWD/cann-ops-report/<repo>/test/run_state.json`；不存在则 fatal："请先跑 cann-ops:ops-test"
 2. 过滤 `status ∈ {BUILD_FAIL, INSTALL_FAIL, RUN_EXIT_FAIL, RUN_PATTERN_FAIL, TIMEOUT}`，按 `(repo, failure_type)` 分组
 3. 用 `AskUserQuestion` 呈现：
    ```
@@ -161,11 +161,11 @@ AskUserQuestion:
 
 | 来源 | 强弱 |
 |---|---|
-| `cann-ops-report/test/run_state.json` | 强依赖 |
-| `cann-ops-report/test/logs/<repo>/<op>.phase{N}.{step}.log` | 强依赖 |
-| `cann-ops-report/test/failures/<repo>/<op>.md` | 弱依赖（"已尝试的诊断"段） |
-| `cann-ops-report/test/explorations/<repo>/<op>.md` | 弱依赖（ops-test P6 探索产物：SOLVED → 草稿加「已验证修复方案」段附 diff/方案；UNSOLVED → 加「已排除路径」段） |
-| `cann-ops-report/scann/<repo>/_intermediate.json` | 弱依赖（950 特性命中、is_delegated） |
+| `cann-ops-report/<repo>/test/run_state.json` | 强依赖 |
+| `cann-ops-report/<repo>/test/logs/<op>.phase{N}.{step}.log` | 强依赖 |
+| `cann-ops-report/<repo>/test/failures/<op>.md` | 弱依赖（"已尝试的诊断"段） |
+| `cann-ops-report/<repo>/test/explorations/<op>.md` | 弱依赖（ops-test P6 探索产物：SOLVED → 草稿加「已验证修复方案」段附 diff/方案；UNSOLVED → 加「已排除路径」段） |
+| `cann-ops-report/<repo>/scann/_intermediate.json` | 弱依赖（950 特性命中、is_delegated） |
 | `git -C <repo_path> remote get-url origin` | 弱依赖（platform 推断） |
 | `$ASCEND_HOME_PATH/version.info` | 弱依赖（CANN 版本） |
 

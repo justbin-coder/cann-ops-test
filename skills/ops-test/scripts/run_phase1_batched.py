@@ -21,8 +21,8 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import resolve_ops, OpsResolutionError, CANN_SET_ENV_SH  # noqa: E402
 
-# 所有产物写到 CWD/cann-ops-report/test/，不写 skill 安装目录
-WORK_DIR = Path.cwd() / "cann-ops-report/test"
+# 所有产物按仓写到 CWD/cann-ops-report/<repo>/test/，不写 skill 安装目录
+REPORT_ROOT = Path.cwd() / "cann-ops-report"
 
 # SOC 由 main() 从 --soc 参数填入，子进程通过 fork 继承
 SOC: str = ""
@@ -225,7 +225,7 @@ def run_repo_optimized(repo: str) -> dict:
     if not repo_path.exists():
         return {"repo": repo, "status": "REPO_NOT_FOUND", "path": repo_path_str}
 
-    repo_log_dir = WORK_DIR / "logs" / repo
+    repo_log_dir = REPORT_ROOT / repo / "test" / "logs"
     repo_log_dir.mkdir(parents=True, exist_ok=True)
     
     target_ops = extract_ops(repo)
@@ -461,8 +461,8 @@ def generate_report(repo_results, total_time):
     full_report["pass_rate"] = pass_pct
     full_report["status_distribution"] = grand_status_counts
     
-    report_file = WORK_DIR / "phase1_report_final.json"
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    report_file = REPORT_ROOT / "phase1_report_final.json"
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     with open(report_file, 'w') as f:
         json.dump(full_report, f, indent=2, ensure_ascii=False)
 

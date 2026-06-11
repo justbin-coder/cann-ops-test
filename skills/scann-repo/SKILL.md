@@ -67,15 +67,15 @@ python3 -c "import jinja2" 2>/dev/null \
 ```bash
 python -m scripts.scan_repo <repo_root> \
   --op-list <repo_root>/docs/zh/op_list.md \
-  --output <CWD>/cann-ops-report/scann/<repo_name>/_intermediate.json
+  --output <CWD>/cann-ops-report/<repo_name>/scann/_intermediate.json
 ```
 
 ### 3. 渲染
 
 ```bash
 python -m scripts.render_report \
-  <CWD>/cann-ops-report/scann/<repo_name>/_intermediate.json \
-  --out <CWD>/cann-ops-report/scann/<repo_name>/ \
+  <CWD>/cann-ops-report/<repo_name>/scann/_intermediate.json \
+  --out <CWD>/cann-ops-report/<repo_name>/scann/ \
   --templates templates/
 ```
 
@@ -83,9 +83,9 @@ python -m scripts.render_report \
 
 ```
 ✓ 扫描完成，产物：
-  - <CWD>/cann-ops-report/scann/<repo_name>/summary.md  （主清单，N 命中）
-  - <CWD>/cann-ops-report/scann/<repo_name>/detail.md   （证据明细）
-  - <CWD>/cann-ops-report/scann/<repo_name>/_intermediate.json （机读 JSON）
+  - <CWD>/cann-ops-report/<repo_name>/scann/summary.md  （主清单，N 命中）
+  - <CWD>/cann-ops-report/<repo_name>/scann/detail.md   （证据明细）
+  - <CWD>/cann-ops-report/<repo_name>/scann/_intermediate.json （机读 JSON）
 
 ⚠ 共发现 K 处 README/代码不一致（详见 summary.md §3）
 ```
