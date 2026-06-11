@@ -19,14 +19,14 @@ except ImportError:
 _RUNNER = Path(__file__).resolve().parent.parent.parent.parent / "ops-test" / "scripts" / "run_phase1_batched.py"
 
 
-def _read_op_status(repo: str, op: str) -> str | None:
-    """Return the phase1 status string from run_state.json, or None if absent."""
+def _read_op_phase1(repo: str, op: str) -> dict | None:
+    """Return the op's phase1 record from run_state.json, or None if absent."""
     state_path = paths.repo_state_file(repo)
     if not state_path.exists():
         return None
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data["ops"][op]["phase1"]["status"]
+        return data["ops"][op]["phase1"]
     except (KeyError, json.JSONDecodeError, TypeError):
         return None
 
@@ -66,6 +66,12 @@ def retest(
                     "detail": f"pre-cleanup failed (rc={cp.returncode}): {cmd}\n{cp.stderr[-500:]}",
                     "log_path": ""}
 
+    # Snapshot phase1.attempts before the run. update_op() bumps it on every
+    # write, so a higher counter afterwards proves THIS retest wrote state —
+    # guarding against trusting a STALE status (e.g. an old PASS) if the runner
+    # crashes before writing, which would otherwise produce a false PASS.
+    before_attempts = (_read_op_phase1(repo, op) or {}).get("attempts", 0)
+
     base_args = [
         python, str(_RUNNER),
         f"--repo-mapping={repo}={repo_path}",
@@ -88,11 +94,12 @@ def retest(
 
     combined = result.stdout + result.stderr
 
-    # Primary: read authoritative status from run_state.json written by the runner.
-    # Fallback: if state file is absent (e.g. runner crashed), use exit code.
-    op_status = _read_op_status(repo, op)
-    if op_status is not None:
-        status = "PASS" if op_status == "PASS" else "FAIL"
+    # Primary: authoritative status from run_state.json — but ONLY if this retest
+    # actually wrote it (attempts bumped). A stale record (runner crashed before
+    # updating) must not be trusted; fall back to the exit code instead.
+    after = _read_op_phase1(repo, op)
+    if after is not None and after.get("attempts", 0) > before_attempts:
+        status = "PASS" if after.get("status") == "PASS" else "FAIL"
     else:
         status = "PASS" if result.returncode == 0 else "FAIL"
 
