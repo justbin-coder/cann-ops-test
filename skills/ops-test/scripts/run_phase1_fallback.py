@@ -143,12 +143,17 @@ def main() -> int:
     print(f"状态分布: {overall}")
     print(f"总耗时: {total/60:.1f} 分钟")
 
-    OUTPUTS_DIR.mkdir(exist_ok=True)
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = OUTPUTS_DIR / "phase1_fallback_report.json"
     report_path.write_text(json.dumps({
         "results": results, "overall": overall, "total_s": total,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"📄 详细报告: {report_path}")
+
+    # 兜底跑测改写了 per-repo run_state，刷新跨仓 SUMMARY.md（否则它停在 batched 那轮）
+    from state import write_summary_md
+    summary = write_summary_md(phase="phase1", soc=args.soc)
+    print(f"📄 摘要(给人看): {summary}")
     return 0
 
 
