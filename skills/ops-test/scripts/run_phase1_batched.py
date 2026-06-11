@@ -270,9 +270,10 @@ def run_repo_optimized(repo: str) -> dict:
     result["phase_durations"]["build"] = time.time() - build_t0
     
     if build_res["exit_code"] != 0:
-        # 全部算子标记 BUILD_FAIL
+        # 全部算子标记 BUILD_FAIL（合并 build，共享同一份 build 日志）
         for op in buildable_ops:
             result["ops_status"][op] = "BUILD_FAIL"
+            result.setdefault("ops_log", {})[op] = str(build_log)
         result["status"] = "BUILD_FAIL"
         result["build_log"] = str(build_log)
         print(f"[{repo}] ❌ Build failed (exit={build_res['exit_code']}, {result['phase_durations']['build']:.0f}s)", flush=True)
@@ -282,14 +283,15 @@ def run_repo_optimized(repo: str) -> dict:
     
     # Step 2: 一次性 install
     pkg_candidates = sorted((repo_path / "build_out").glob("cann-ops-*linux*.run"))
+    install_log = repo_log_dir / "_BATCH.phase1.install.log"
     if not pkg_candidates:
         for op in buildable_ops:
             result["ops_status"][op] = "INSTALL_FAIL"
+            result.setdefault("ops_log", {})[op] = str(install_log)
         result["status"] = "INSTALL_FAIL_NO_PKG"
         return result
     
     pkg = pkg_candidates[-1]
-    install_log = repo_log_dir / "_BATCH.phase1.install.log"
     install_cmd = f"{pkg} --quiet"
     
     print(f"[{repo}] Installing pkg...", flush=True)
@@ -303,6 +305,7 @@ def run_repo_optimized(repo: str) -> dict:
         if install_res["exit_code"] != 0:
             for op in buildable_ops:
                 result["ops_status"][op] = "INSTALL_FAIL"
+                result.setdefault("ops_log", {})[op] = str(install_log)
             result["status"] = "INSTALL_FAIL"
             return result
     
@@ -335,6 +338,7 @@ def run_repo_optimized(repo: str) -> dict:
                 status = "RUN_EXIT_FAIL" if run_res["exit_code"] != 0 else "RUN_PATTERN_FAIL"
 
         result["ops_status"][op] = status
+        result.setdefault("ops_log", {})[op] = str(run_log)
         result.setdefault("ops_verdict_reason", {})[op] = verdict_reason
         symbol = {"PASS": "✅", "UNCERTAIN": "❓"}.get(status, "❌")
         print(f"[{repo}] [{i}/{len(buildable_ops)}] {symbol} {op}: {status}", flush=True)
@@ -372,17 +376,18 @@ def sync_to_state_json(repo_results):
             "install": durations.get("install", 0) / max(1, len(ops_status)),
         }
         verdict_reasons = r.get("ops_verdict_reason", {})
+        ops_log = r.get("ops_log", {})
         for op, status in ops_status.items():
             extra = {"mode": "batched"}
             if status == "BUILD_FAIL":
                 extra["step"] = "build"
-                extra["log_path_hint"] = r.get("build_log")
             if op in verdict_reasons:
                 extra["verdict_reason"] = verdict_reasons[op]
             if status == "UNCERTAIN":
                 extra["note"] = "exit==0 but no strong pass/fail signal — agent review needed"
             update_op(repo, op, "phase1", status,
                       duration_s=per_op_share["build"] + per_op_share["install"],
+                      log_path=ops_log.get(op),
                       extra=extra)
 
 
