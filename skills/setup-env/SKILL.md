@@ -123,3 +123,8 @@ python3 scripts/smoke_build.py --repo-path <repo> --soc <用户给的SOC> \
 - ✗ 不假设 conda 一定存在、不假设 python 版本（运行时探/问）
 - ✗ 不假设 SOC（冒烟构建前必须询问用户）
 - ✗ 副作用（建 env / pip / clone / checkout）一律先确认或 `CANN_OPS_DRY_RUN=1` 干跑
+
+## 附录：常见问题（FAQ）
+
+裸机/新机搭建反复会遇到的环境坑，见 [`docs/FAQ.md`](docs/FAQ.md)（每条「现象 → 根因 → 解法」）：
+conda ToS 未接受致 `conda create` 失败、国内 conda/pip 镜像被封需回退代理、`npu-smi -8005`（不在 `HwHiAiUser` 组）、国际网慢需 scp 离线装 miniconda、共享磁盘满需最小足迹、仓缺 `OP_LOGE_FOR_INVALID_*` 需切配套 tag。
