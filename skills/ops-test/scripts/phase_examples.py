@@ -29,6 +29,12 @@ from utils import (  # noqa: E402
     append_ld_library_path, ensure_log_path, find_run_pkg, run_cmd, vendor_name_for,
 )
 
+# build 并行度 -j：单算子路径用全部可用核（无仓间争用，吃满即可）
+try:
+    _JOBS = len(os.sched_getaffinity(0))
+except AttributeError:
+    _JOBS = os.cpu_count() or 16
+
 
 def has_examples(op_dir: Path) -> bool:
     """判断算子目录下是否存在可跑的 example（test_*.cpp）。"""
@@ -53,7 +59,7 @@ def find_op_dir(repo_path: Path, op: str) -> Path | None:
 
 def build_op(repo: str, repo_path: Path, op: str, soc: str, timeout: int) -> bool:
     log = ensure_log_path(repo, op, "phase1.build")
-    cmd = f"bash build.sh --pkg --soc={soc} --ops={op} -j16"
+    cmd = f"bash build.sh --pkg --soc={soc} --ops={op} -j{_JOBS}"
     res = run_cmd(cmd, repo_path, timeout=timeout, log_path=log)
     if res.exit_code != 0:
         update_op(repo, op, "phase1", "BUILD_FAIL", res.duration_s, str(log),
