@@ -139,6 +139,64 @@ def parse_cann_version(ascend_home: str | None) -> dict:
     return dict(_NONE_VERSION)
 
 
+def soc_name_to_build_soc(soc_name: str | None) -> str | None:
+    """`acl.get_soc_name()` 的原始名 → build.sh 短 soc 串（泛化映射）。
+
+    Ascend910_9382 / _9362 / _5512 ... → ascend910_93 / ascend910_55（取 `_` 后两位档号）
+    Ascend910B3 / Ascend910ProB        → ascend910b
+    Ascend910A / Ascend910PremiumA      → ascend910
+    Ascend950*  → ascend950;Ascend310P* → ascend310p;Ascend310B* → ascend310b
+    其它原样小写兜底（交给 build.sh 自己校验）。
+    """
+    if not soc_name:
+        return None
+    low = soc_name.strip().lower()
+    m = re.match(r"ascend910_(\d{2})\d*", low)        # _93xx / _55xx 系列
+    if m:
+        return f"ascend910_{m.group(1)}"
+    if re.match(r"ascend910(pro)?b", low):            # 910b* / 910prob*
+        return "ascend910b"
+    if low.startswith("ascend910"):                   # 910a / 910proa / 910premiuma
+        return "ascend910"
+    if low.startswith("ascend950"):
+        return "ascend950"
+    if low.startswith("ascend310p"):
+        return "ascend310p"
+    if low.startswith("ascend310b"):
+        return "ascend310b"
+    return low
+
+
+def detect_soc(set_env: "Path | None") -> dict:
+    """用 CANN 运行时 `acl.get_soc_name()` 探测精确 soc，并映射到 build.sh 短 soc 串。
+
+    需 CANN + set_env（子 shell source 后跑 pyACL）；acl 不可用/无 NPU 权限时静默返回 None。
+    返回 {raw: 'Ascend910_9382'|None, build_soc: 'ascend910_93'|None}。
+    比「向用户问 SOC」更可靠——避免人工把 910_93xx 误当 ascend910b。
+    """
+    none = {"raw": None, "build_soc": None}
+    if not set_env:
+        return dict(none)
+    # 用 marker 包住 soc 名：CANN 运行时会往 **stdout** 打 [Warning] 行（不是 stderr，
+    # 简单取末行会取到 warning），故 grep marker 行而非末行。
+    pycode = "import acl;acl.init();n=acl.get_soc_name();print('__SOC__'+str(n));acl.finalize()"
+    try:
+        res = subprocess.run(
+            ["bash", "-lc", f'source "{set_env}" >/dev/null 2>&1; python3 -c "{pycode}"'],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return dict(none)
+    raw = None
+    for line in res.stdout.splitlines():
+        if line.startswith("__SOC__"):
+            raw = line[len("__SOC__"):].strip()
+            break
+    if raw and not raw.lower().startswith("ascend"):  # 排除噪声/空
+        raw = None
+    return {"raw": raw, "build_soc": soc_name_to_build_soc(raw)}
+
+
 def _tool_version(tool: str) -> str | None:
     if shutil.which(tool) is None:
         return None
@@ -202,11 +260,13 @@ def detect(explicit_set_env: str | None = None) -> dict:
     set_env = find_set_env(explicit_set_env)
     ascend_home = source_ascend_home(set_env) if set_env else None
     version = parse_cann_version(ascend_home)
+    soc = detect_soc(set_env)
     return {
         "cann": {
             "set_env_sh": str(set_env) if set_env else None,
             "ascend_home_path": ascend_home,
             "version": version,
+            "soc": soc,
             "ready": bool(set_env and ascend_home),
         },
         "conda": detect_conda(),
@@ -222,6 +282,11 @@ def _human(d: dict) -> str:
         lines.append(f"  set_env.sh : {c['set_env_sh']}")
         lines.append(f"  ASCEND_HOME: {c['ascend_home_path']}")
         lines.append(f"  版本       : {c['version']['full'] or '解析失败'} (core={c['version']['core']})")
+        soc = c.get("soc") or {}
+        if soc.get("build_soc"):
+            lines.append(f"  SOC        : {soc['build_soc']}  (acl 探测原始名 {soc.get('raw')})")
+        else:
+            lines.append("  SOC        : 自动探测失败（acl 不可用/无 NPU 权限）—— SKILL 改向用户询问")
     else:
         lines.append("  未发现 set_env.sh —— CANN toolkit 可能未安装，或安装在非常见路径（用 --set-env 指定）")
     co = d["conda"]

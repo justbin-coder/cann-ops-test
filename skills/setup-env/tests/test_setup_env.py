@@ -52,3 +52,29 @@ def test_pick_prefers_exact_beta_when_present():
 def test_pick_none_when_only_master():
     cands = repo_setup.version_to_tag_candidates("9.0.0-beta.1")
     assert repo_setup.pick_matching_tag(cands, ["master", "main"]) is None
+
+
+# ---- SOC 名 → build.sh 短 soc 串映射 ----
+
+def test_soc_910_93_series():
+    f = detect_env.soc_name_to_build_soc
+    assert f("Ascend910_9382") == "ascend910_93"   # 910C / 9382
+    assert f("Ascend910_9362") == "ascend910_93"
+    assert f("Ascend910_5512") == "ascend910_55"
+
+
+def test_soc_910b_and_910a():
+    f = detect_env.soc_name_to_build_soc
+    assert f("Ascend910B3") == "ascend910b"
+    assert f("Ascend910ProB") == "ascend910b"
+    assert f("Ascend910B2C") == "ascend910b"
+    assert f("Ascend910A") == "ascend910"
+    assert f("Ascend910PremiumA") == "ascend910"
+
+
+def test_soc_other_families_and_none():
+    f = detect_env.soc_name_to_build_soc
+    assert f("Ascend950") == "ascend950"
+    assert f("Ascend310P3") == "ascend310p"
+    assert f("Ascend310B") == "ascend310b"
+    assert f(None) is None

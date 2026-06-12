@@ -43,12 +43,13 @@ description: 为 CANN 算子仓搭建可构建/可跑测的基础环境——发
 python3 scripts/detect_env.py --json     # 或不带 --json 看人读摘要
 ```
 
-一次性给出：CANN（set_env.sh 路径 / 真实 ASCEND_HOME_PATH / 解析出的版本 / ready）、conda（是否可用 + 已有 env）、系统构建依赖（cmake/gcc/g++/make/git 必需 + ccache 可选）、可见 python 解释器。
+一次性给出：CANN（set_env.sh 路径 / 真实 ASCEND_HOME_PATH / 解析出的版本 / **SOC 自动探测** / ready）、conda（是否可用 + 已有 env）、系统构建依赖（cmake/gcc/g++/make/git 必需 + ccache 可选）、可见 python 解释器。
 
 把摘要用中文呈现给用户，作为后续每步的依据。
 
 - **CANN `ready=false`**（没探到 set_env.sh）：提示用户 CANN toolkit 可能未装或在非常见路径，用 `AskUserQuestion` 让用户给 set_env.sh 路径 → `--set-env <path>` 重探；仍无 → 指引装 CANN，止步。
 - **版本解析**：以 `ASCEND_HOME_PATH` 的 basename（如 `cann-9.0.0-beta.1`）为准，**不取 driver 版本**（`/usr/local/Ascend/version.info` 那种 25.x 是 driver，不是 CANN）。
+- **SOC 自动探测**：detect_env 用 CANN 运行时 `acl.get_soc_name()` 拿芯片精确 soc（如 `Ascend910_9382`）→ 映射成 build.sh 短串（`ascend910_93`），存 `cann.soc.build_soc`。**P6 优先用它**，不盲问/不猜（曾把 910_93xx 误当 ascend910b）。探不到（acl 不可用 / 无 NPU 权限 / 无 set_env）才回退 `AskUserQuestion` 问用户。
 
 ### P2 — 系统构建依赖
 
@@ -104,11 +105,11 @@ python3 scripts/repo_setup.py plan \
 挑一个仓、一个最小算子，证明「环境真能编出算子包」：
 
 ```bash
-python3 scripts/smoke_build.py --repo-path <repo> --soc <用户给的SOC> \
+python3 scripts/smoke_build.py --repo-path <repo> --soc <P1探测的 build_soc，探不到才问用户> \
   --set-env <P1的set_env.sh> [--op <算子，可省自动挑>] [--jobs 0]
 ```
 
-成功（exit0 + 出 `.run`）→ 环境就绪。失败 → grep `log_tail` 报真实错误，按错误指向回到 P2/P3/P4 修。**SOC 必须询问用户**（`ascend950` 等），不假设。
+成功（exit0 + 出 `.run`）→ 环境就绪。失败 → grep `log_tail` 报真实错误，按错误指向回到 P2/P3/P4 修。**SOC 优先用 P1 自动探测的 `cann.soc.build_soc`**（如 910C 芯片得 `ascend910_93`）；探不到才 `AskUserQuestion` 问用户，不假设、不猜。
 
 ### 汇报
 
@@ -121,7 +122,7 @@ python3 scripts/smoke_build.py --repo-path <repo> --soc <用户给的SOC> \
 - ✗ 不静默把仓停在 master 编（无配套 tag 必须问用户）
 - ✗ 不改宿主 shell rc / 全局环境（除非用户明确要求）
 - ✗ 不假设 conda 一定存在、不假设 python 版本（运行时探/问）
-- ✗ 不假设 SOC（冒烟构建前必须询问用户）
+- ✗ 不假设 SOC（优先 `acl.get_soc_name()` 自动探测 + 映射，探不到才询问用户；不靠人工猜）
 - ✗ 副作用（建 env / pip / clone / checkout）一律先确认或 `CANN_OPS_DRY_RUN=1` 干跑
 
 ## 附录：常见问题（FAQ）
