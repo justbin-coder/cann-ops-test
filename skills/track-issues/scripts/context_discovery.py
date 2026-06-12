@@ -55,15 +55,16 @@ def discover_soc(
 def discover_repo_path(repo: str) -> str | None:
     """Return local repo_path if discoverable from run_state.json, else None.
 
-    ops-test's run_state.json doesn't currently store repo_path either; this is
-    a forward-compatible hook. For now, callers must always ask the user.
+    Reads the per-repo `cann-ops-report/<repo>/test/run_state.json` flat schema
+    (top-level `repo_path` key). ops-test doesn't always store it, so this stays
+    a best-effort hook — callers fall back to asking the user when it returns None.
     """
-    state_path = Path(paths.TEST_STATE_FILE)
+    state_path = paths.repo_state_file(repo)
     if not state_path.exists():
         return None
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data["repos"][repo].get("repo_path")
+        return data.get("repo_path")
     except (KeyError, json.JSONDecodeError, TypeError):
         return None
 
@@ -94,11 +95,11 @@ def _from_issue_body(body: str) -> str | None:
 
 
 def _from_run_state(repo: str, op: str) -> str | None:
-    state_path = Path(paths.TEST_STATE_FILE)
+    state_path = paths.repo_state_file(repo)
     if not state_path.exists():
         return None
     try:
         data = json.loads(state_path.read_text(encoding="utf-8"))
-        return data["repos"][repo]["ops"][op].get("soc")
+        return data["ops"][op].get("soc")
     except (KeyError, json.JSONDecodeError, TypeError):
         return None

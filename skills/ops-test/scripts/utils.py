@@ -9,10 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# 运行产物写到 CWD/cann-ops-report/test/（与 state.py 保持一致）
-WORK_DIR = Path.cwd() / "cann-ops-report/test"
-OUTPUTS_DIR = WORK_DIR
-LOGS_DIR = WORK_DIR / "logs"
+# 运行产物按仓写到 CWD/cann-ops-report/<repo>/test/（与 state.py 保持一致）
+REPORT_ROOT = Path.cwd() / "cann-ops-report"
 
 # CANN 环境激活脚本：CANN toolkit 安装后会自动设置 ASCEND_HOME_PATH，
 # 从中推导 set_env.sh 路径；找不到时 fallback 到标准安装默认路径。
@@ -20,9 +18,13 @@ import os as _os
 def _find_set_env_sh() -> str:
     ascend_home = _os.environ.get("ASCEND_HOME_PATH", "")
     if ascend_home:
-        candidate = Path(ascend_home).parent.parent / "set_env.sh"
-        if candidate.exists():
-            return str(candidate)
+        # 兼容两种官方安装布局：
+        #   直装:    ASCEND_HOME_PATH=/xxx/Ascend/cann-X.Y.Z       → set_env.sh 在其下
+        #   toolkit: ASCEND_HOME_PATH=/xxx/ascend-toolkit/latest/<arch> → set_env.sh 在上两级
+        for candidate in (Path(ascend_home) / "set_env.sh",
+                          Path(ascend_home).parent.parent / "set_env.sh"):
+            if candidate.exists():
+                return str(candidate)
     return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
 
 CANN_SET_ENV_SH = _find_set_env_sh()
@@ -109,7 +111,7 @@ class CmdResult:
 
 
 def ensure_log_path(repo: str, op: str, phase: str) -> Path:
-    repo_logs = LOGS_DIR / repo
+    repo_logs = REPORT_ROOT / repo / "test" / "logs"
     repo_logs.mkdir(parents=True, exist_ok=True)
     return repo_logs / f"{op}.{phase}.log"
 
@@ -214,8 +216,8 @@ def resolve_ops(
       1. ``cli_ops``：CSV 字符串，例如 ``op1,op2,op3``。skill 显式传入时使用。
       2. ``cli_ops_file``：路径，可以是 .json（含 ``unique_targets`` 列表 / 顶层 list）
          或纯文本（一行一个算子，``#`` 开头为注释，空行忽略）。
-      3. ``scann_root / repo / _intermediate.json`` 的 ``unique_targets`` 字段
-         （由 ``cann-ops:scann-repo`` 生成的默认入口）。
+      3. ``cann-ops-report/<repo>/scann/_intermediate.json`` 的 ``unique_targets`` 字段
+         （由 ``cann-ops:scann-repo`` 生成的默认入口；scann_root 可覆盖根目录）。
 
     全部未命中 → 抛 ``OpsResolutionError``，要求 skill 与用户交互后重试。
 
@@ -227,8 +229,8 @@ def resolve_ops(
     if cli_ops_file:
         return _read_ops_file(Path(cli_ops_file))
 
-    root = scann_root or (Path.cwd() / "cann-ops-report" / "scann")
-    intermediate = root / repo / "_intermediate.json"
+    root = scann_root or REPORT_ROOT
+    intermediate = root / repo / "scann" / "_intermediate.json"
     if intermediate.exists():
         try:
             data = json.loads(intermediate.read_text(encoding="utf-8"))
@@ -280,4 +282,18 @@ def _dedupe(seq: list[str]) -> list[str]:
         if x not in seen:
             seen.add(x)
             out.append(x)
+    return out
+
+
+def parse_repo_mapping(s: str) -> dict:
+    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → {repo: path}。"""
+    out: dict[str, str] = {}
+    for entry in s.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
+        name, path = entry.split("=", 1)
+        out[name.strip()] = path.strip()
     return out

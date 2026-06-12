@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -23,10 +22,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from state import load as load_state  # noqa: E402
+from utils import parse_repo_mapping  # noqa: E402
 
-# 所有产物写到 CWD/cann-ops-report/test/
-WORK_DIR = Path.cwd() / "cann-ops-report/test"
-OUTPUTS_DIR = WORK_DIR
+# 汇总报告写到 CWD/cann-ops-report/（逐仓产物在 <repo>/test/）
+OUTPUTS_DIR = Path.cwd() / "cann-ops-report"
 
 DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
 
@@ -34,22 +33,15 @@ DEFAULT_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL"}
 SOC: str = ""
 
 
-def parse_repo_mapping(s: str) -> dict[str, str]:
-    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
-    out: dict[str, str] = {}
-    for entry in s.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if "=" not in entry:
-            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
-        name, path = entry.split("=", 1)
-        out[name.strip()] = path.strip()
-    return out
-
-
-# REPO_PATHS 在 main() 由 CLI 参数填入，跨进程通过 fork 继承
+# REPO_PATHS 在 main() 由 CLI 参数填入；worker 通过 initializer 显式接收（spawn 安全）
 REPO_PATHS: dict[str, str] = {}
+
+
+def _init_worker(soc: str, repo_paths: dict[str, str]) -> None:
+    """在每个 worker 进程里恢复全局；fork 平台冗余、spawn 平台必需。"""
+    global SOC, REPO_PATHS
+    SOC = soc
+    REPO_PATHS = repo_paths
 
 
 def pick_ops(repo: str, statuses: set[str]) -> list[str]:
@@ -97,7 +89,7 @@ def main() -> int:
                     help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
     ap.add_argument("--soc", required=True,
                     help="目标 SOC 名称（如 ascend910b / ascend950 等），由 skill 询问用户得到")
-    ap.add_argument("--statuses", default="BUILD_FAIL,INSTALL_FAIL",
+    ap.add_argument("--statuses", default=",".join(sorted(DEFAULT_STATUSES)),
                     help="re-run ops in these phase1 statuses")
     ap.add_argument("--max-workers", type=int, default=3)
     args = ap.parse_args()
@@ -122,7 +114,9 @@ def main() -> int:
 
     t0 = time.time()
     results = []
-    with ProcessPoolExecutor(max_workers=args.max_workers) as ex:
+    with ProcessPoolExecutor(max_workers=args.max_workers,
+                             initializer=_init_worker,
+                             initargs=(SOC, dict(REPO_PATHS))) as ex:
         fut2repo = {
             ex.submit(run_repo_fallback, repo, ops): repo
             for repo, ops in plan.items() if ops
@@ -144,12 +138,17 @@ def main() -> int:
     print(f"状态分布: {overall}")
     print(f"总耗时: {total/60:.1f} 分钟")
 
-    OUTPUTS_DIR.mkdir(exist_ok=True)
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = OUTPUTS_DIR / "phase1_fallback_report.json"
     report_path.write_text(json.dumps({
         "results": results, "overall": overall, "total_s": total,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"📄 详细报告: {report_path}")
+
+    # 兜底跑测改写了 per-repo run_state，刷新跨仓 SUMMARY.md（否则它停在 batched 那轮）
+    from state import write_summary_md
+    summary = write_summary_md(phase="phase1", soc=args.soc)
+    print(f"📄 摘要(给人看): {summary}")
     return 0
 
 

@@ -33,19 +33,19 @@ class FailureRecord:
 def load_failures() -> dict[str, dict[str, list[FailureRecord]]]:
     """Return {repo: {failure_type: [FailureRecord, ...]}}.
 
-    Reads CWD/cann-ops-report/test/run_state.json. Raises FileNotFoundError
-    with a user-friendly message if run_state.json is absent.
+    Aggregates every CWD/cann-ops-report/<repo>/test/run_state.json (per-repo
+    layout). Raises FileNotFoundError with a user-friendly message if none exist.
     """
-    state_file = paths.TEST_STATE_FILE._resolve()
-    if not state_file.exists():
+    repo_states = list(paths.iter_repo_states())
+    if not repo_states:
         raise FileNotFoundError(
-            f"run_state.json not found at {state_file}. "
+            f"no run_state.json under {Path.cwd() / 'cann-ops-report'}/<repo>/test/. "
             f"Did you run cann-ops:ops-test first?"
         )
-    state = json.loads(state_file.read_text(encoding="utf-8"))
 
     grouped: dict[str, dict[str, list[FailureRecord]]] = {}
-    for repo, repo_state in state.get("repos", {}).items():
+    for repo, state_file in repo_states:
+        repo_state = json.loads(state_file.read_text(encoding="utf-8"))
         for op, op_state in repo_state.get("ops", {}).items():
             for phase, phase_state in op_state.items():
                 status = phase_state.get("status", "")

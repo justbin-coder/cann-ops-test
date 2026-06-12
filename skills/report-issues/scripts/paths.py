@@ -34,9 +34,11 @@ REPOS_FILE = _LazyPath("cann-ops-report", "issues", "repos.json")
 DRAFTS_DIR = _LazyPath("cann-ops-report", "issues", "drafts")
 SUBMITTED_DIR = _LazyPath("cann-ops-report", "issues", "submitted")
 
-TEST_DIR = _LazyPath("cann-ops-report", "test")
-TEST_STATE_FILE = _LazyPath("cann-ops-report", "test", "run_state.json")
-TEST_LOGS_DIR = _LazyPath("cann-ops-report", "test", "logs")
-TEST_FAILURES_DIR = _LazyPath("cann-ops-report", "test", "failures")
-
-SCANN_DIR = _LazyPath("cann-ops-report", "scann")
+def iter_repo_states():
+    """yield (repo, state_file_path)，遍历 cann-ops-report/*/test/run_state.json。"""
+    root = Path.cwd() / "cann-ops-report"
+    if root.is_dir():
+        for d in sorted(root.iterdir()):
+            f = d / "test" / "run_state.json"
+            if f.is_file():
+                yield d.name, f

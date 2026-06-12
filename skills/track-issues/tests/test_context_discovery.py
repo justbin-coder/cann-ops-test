@@ -78,12 +78,8 @@ def test_soc_returns_none_when_no_source(tmp_cwd: Path) -> None:
 
 
 def test_soc_from_run_state_when_state_record_absent(tmp_cwd: Path) -> None:
-    run_state = {
-        "repos": {
-            "ops-nn": {"ops": {"qbmm": {"soc": "ascend950", "phase1": {"status": "PASS"}}}}
-        }
-    }
-    p = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
+    run_state = {"ops": {"qbmm": {"soc": "ascend950", "phase1": {"status": "PASS"}}}}
+    p = tmp_cwd / "cann-ops-report" / "ops-nn" / "test" / "run_state.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(run_state), encoding="utf-8")
 
@@ -100,10 +96,8 @@ def test_repo_path_returns_none_when_state_absent(tmp_cwd: Path) -> None:
 
 
 def test_repo_path_from_run_state(tmp_cwd: Path) -> None:
-    run_state = {
-        "repos": {"ops-nn": {"repo_path": "/home/user/cann/ops-nn", "ops": {}}}
-    }
-    p = tmp_cwd / "cann-ops-report" / "test" / "run_state.json"
+    run_state = {"repo_path": "/home/user/cann/ops-nn", "ops": {}}
+    p = tmp_cwd / "cann-ops-report" / "ops-nn" / "test" / "run_state.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(run_state), encoding="utf-8")
     assert context_discovery.discover_repo_path("ops-nn") == "/home/user/cann/ops-nn"

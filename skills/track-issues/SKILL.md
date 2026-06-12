@@ -270,7 +270,7 @@ result = retest(plan=plan, context={
 
 判定流程：
 
-1. 读 `cann-ops-report/test/phase1_report_final.json`，找 `repos[repo].ops[op]`
+1. 读 `cann-ops-report/<repo>/test/phase1_report_final.json`，找 `repos[repo].ops[op]`
 2. 看 `phase1.examples`（list of `{name, status}`）
 3. 如果 `examples` 全成功 → 真 PASS
 4. 如果至少一个 example PASS 且至少一个 FAIL → **partial-PASS**
@@ -346,13 +346,13 @@ from scripts._error_sig import signature, first_error_line
 
 # 1. 从 phase1_report_final.json 抽 pass/fail examples 清单
 import json
-report = json.load(open("cann-ops-report/test/phase1_report_final.json"))
+report = json.load(open("cann-ops-report/<repo>/test/phase1_report_final.json"))
 examples = report["repos"][repo]["ops"][op]["phase1"]["examples"]
 passed = [e["name"] for e in examples if e["status"] == "PASS"]
 failed = [e["name"] for e in examples if e["status"] != "PASS"]
 
 # 2. 抓 run.log 里的错误片段
-run_log = f"cann-ops-report/test/logs/{repo}/{op}.phase1.run.log"
+run_log = f"cann-ops-report/<repo>/test/logs/{repo}/{op}.phase1.run.log"
 error_snippet = subprocess.run(
     ["grep", "-nE", "ERROR:|failed\\.", run_log],
     capture_output=True, text=True,

@@ -13,16 +13,17 @@ import os
 import subprocess
 import sys
 import time
-import re
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from utils import resolve_ops, OpsResolutionError  # noqa: E402
+from utils import (  # noqa: E402
+    resolve_ops, OpsResolutionError, CANN_SET_ENV_SH, parse_repo_mapping,
+)
 
-# 所有产物写到 CWD/cann-ops-report/test/，不写 skill 安装目录
-WORK_DIR = Path.cwd() / "cann-ops-report/test"
+# 所有产物按仓写到 CWD/cann-ops-report/<repo>/test/，不写 skill 安装目录
+REPORT_ROOT = Path.cwd() / "cann-ops-report"
 
 # SOC 由 main() 从 --soc 参数填入，子进程通过 fork 继承
 SOC: str = ""
@@ -36,15 +37,8 @@ BUILD_EXTRA_ARGS: str = ""
 RUN_EXTRA_ARGS: str = ""
 ENV_EXTRA: dict[str, str] = {}
 
-def _find_set_env_sh() -> str:
-    ascend_home = os.environ.get("ASCEND_HOME_PATH", "")
-    if ascend_home:
-        candidate = Path(ascend_home).parent.parent / "set_env.sh"
-        if candidate.exists():
-            return str(candidate)
-    return str(Path.home() / "Ascend/ascend-toolkit/latest/set_env.sh")
-
-SET_ENV_SH = _find_set_env_sh()
+# set_env.sh 推导统一走 utils，避免双处实现漂移（修 utils 不生效的隐性坑）
+SET_ENV_SH = CANN_SET_ENV_SH
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -93,22 +87,32 @@ def _compose_run_cmd(*, op: str, run_extra_args: str = "") -> str:
     return cmd
 
 
-def parse_repo_mapping(s: str) -> dict[str, str]:
-    """解析 --repo-mapping 参数：repo1=path1,repo2=path2 → dict。"""
-    out = {}
-    for entry in s.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        if "=" not in entry:
-            raise ValueError(f"--repo-mapping 项 {entry!r} 缺少 '='")
-        name, path = entry.split("=", 1)
-        out[name.strip()] = path.strip()
-    return out
-
+# parse_repo_mapping 复用 utils.parse_repo_mapping（两个 runner 共用，避免重复实现）
 
 # REPO_PATHS 在 main() 里由 CLI 参数填入，仓内子函数通过它查路径
 REPO_PATHS: dict[str, str] = {}
+
+
+def _worker_config() -> dict:
+    """打包跑测配置，传给 ProcessPool worker（spawn 平台不继承全局，必须显式传）。"""
+    return {
+        "soc": SOC, "cli_ops": CLI_OPS, "cli_ops_file": CLI_OPS_FILE,
+        "build_extra_args": BUILD_EXTRA_ARGS, "run_extra_args": RUN_EXTRA_ARGS,
+        "env_extra": ENV_EXTRA, "repo_paths": REPO_PATHS, "set_env_sh": SET_ENV_SH,
+    }
+
+
+def _init_worker(config: dict) -> None:
+    """在每个 worker 进程里恢复模块全局；fork 平台是冗余、spawn 平台是必需。"""
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH
+    SOC = config["soc"]
+    CLI_OPS = config["cli_ops"]
+    CLI_OPS_FILE = config["cli_ops_file"]
+    BUILD_EXTRA_ARGS = config["build_extra_args"]
+    RUN_EXTRA_ARGS = config["run_extra_args"]
+    ENV_EXTRA = config["env_extra"]
+    REPO_PATHS = config["repo_paths"]
+    SET_ENV_SH = config["set_env_sh"]
 
 # 判定逻辑统一来自 utils.py（避免漂移）
 from utils import classify_log  # noqa: E402
@@ -137,8 +141,36 @@ def has_examples(op_dir: Path) -> bool:
     return ex.is_dir() and any(ex.rglob("test_*.cpp"))
 
 
+def _kill_process_group(proc: "subprocess.Popen") -> None:
+    """SIGTERM then SIGKILL the process group started with start_new_session.
+
+    Falls back to killing just the process if the platform lacks process groups.
+    """
+    import os as _os
+    import signal as _signal
+    try:
+        pgid = _os.getpgid(proc.pid)
+        _os.killpg(pgid, _signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            _os.killpg(pgid, _signal.SIGKILL)
+    except (ProcessLookupError, AttributeError, OSError):
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
-    """运行 shell 命令（带 set_env.sh），全量捕获日志"""
+    """运行 shell 命令（带 set_env.sh），日志逐行流式落盘。
+
+    长 build（几十分钟）期间日志文件随时可 tail；不再等命令结束才一次性写入。
+    返回结构与旧实现一致（stdout/stderr 分流，便于 classify_log）。
+    """
+    import threading
+
     full_cmd = f"source {SET_ENV_SH} && {cmd}"
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,35 +180,63 @@ def run_shell(cmd: str, cwd: Path, log_path: Path, timeout: int) -> dict:
     env = os.environ.copy()
     env.update(ENV_EXTRA)
 
-    try:
-        proc = subprocess.run(
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    write_lock = threading.Lock()
+
+    with open(log_path, "w", encoding="utf-8", errors="replace") as logf:
+        logf.write(f"$ cd {cwd}\n$ {cmd}\n[timeout={timeout}s]\n\n--- STREAM ---\n")
+        logf.flush()
+
+        # start_new_session=True puts the shell into its own process group so a
+        # timeout can kill the ENTIRE tree (make/cmake/ccec/.run, …), not just
+        # the bash wrapper — otherwise descendants leak and keep holding the NPU.
+        proc = subprocess.Popen(
             ["bash", "-c", full_cmd],
             cwd=str(cwd),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            errors="replace",
             env=env,
+            start_new_session=True,
         )
+
+        def pump(stream, sink: list[str], tag: str) -> None:
+            for line in iter(stream.readline, ""):
+                sink.append(line)
+                with write_lock:
+                    logf.write(f"{tag}{line}")
+                    logf.flush()
+            stream.close()
+
+        threads = [
+            threading.Thread(target=pump, args=(proc.stdout, stdout_lines, "")),
+            threading.Thread(target=pump, args=(proc.stderr, stderr_lines, "[stderr] ")),
+        ]
+        for t in threads:
+            t.start()
+
         timed_out = False
-        exit_code = proc.returncode
-        stdout = proc.stdout or ""
-        stderr = proc.stderr or ""
-    except subprocess.TimeoutExpired as e:
-        exit_code = 124
-        stdout = (e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")) or ""
-        stderr = (e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")) or ""
-        stderr += f"\n[TIMEOUT after {timeout}s]\n"
-        timed_out = True
-    
-    duration = time.time() - start
-    
-    # 写日志
-    log_path.write_text(
-        f"$ cd {cwd}\n$ {cmd}\n[exit={exit_code} duration={duration:.1f}s timeout={timeout}s]\n"
-        f"\n--- STDOUT ---\n{stdout}\n--- STDERR ---\n{stderr}\n",
-        encoding="utf-8", errors="replace",
-    )
-    
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            proc.wait()
+            timed_out = True
+
+        for t in threads:
+            t.join()
+
+        exit_code = 124 if timed_out else proc.returncode
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        if timed_out:
+            stderr += f"\n[TIMEOUT after {timeout}s]\n"
+
+        duration = time.time() - start
+        logf.write(f"\n[exit={exit_code} duration={duration:.1f}s timeout={timeout}s]\n")
+
     return {
         "exit_code": exit_code,
         "duration_s": duration,
@@ -202,7 +262,7 @@ def run_repo_optimized(repo: str) -> dict:
     if not repo_path.exists():
         return {"repo": repo, "status": "REPO_NOT_FOUND", "path": repo_path_str}
 
-    repo_log_dir = WORK_DIR / "logs" / repo
+    repo_log_dir = REPORT_ROOT / repo / "test" / "logs"
     repo_log_dir.mkdir(parents=True, exist_ok=True)
     
     target_ops = extract_ops(repo)
@@ -247,9 +307,10 @@ def run_repo_optimized(repo: str) -> dict:
     result["phase_durations"]["build"] = time.time() - build_t0
     
     if build_res["exit_code"] != 0:
-        # 全部算子标记 BUILD_FAIL
+        # 全部算子标记 BUILD_FAIL（合并 build，共享同一份 build 日志）
         for op in buildable_ops:
             result["ops_status"][op] = "BUILD_FAIL"
+            result.setdefault("ops_log", {})[op] = str(build_log)
         result["status"] = "BUILD_FAIL"
         result["build_log"] = str(build_log)
         print(f"[{repo}] ❌ Build failed (exit={build_res['exit_code']}, {result['phase_durations']['build']:.0f}s)", flush=True)
@@ -258,28 +319,34 @@ def run_repo_optimized(repo: str) -> dict:
     print(f"[{repo}] ✓ Build done in {result['phase_durations']['build']:.0f}s", flush=True)
     
     # Step 2: 一次性 install
-    pkg_candidates = sorted((repo_path / "build_out").glob("cann-ops-*linux*.run"))
+    # 只认本次 build 产出的 .run（mtime ≥ build 开始），避免拿到上一次构建的旧包
+    all_pkgs = sorted((repo_path / "build_out").glob("cann-ops-*linux*.run"))
+    fresh_pkgs = [p for p in all_pkgs if p.stat().st_mtime >= build_t0 - 1]
+    pkg_candidates = fresh_pkgs or all_pkgs   # 没有更新的就退回全部（容错）
+    install_log = repo_log_dir / "_BATCH.phase1.install.log"
     if not pkg_candidates:
         for op in buildable_ops:
             result["ops_status"][op] = "INSTALL_FAIL"
+            result.setdefault("ops_log", {})[op] = str(install_log)
         result["status"] = "INSTALL_FAIL_NO_PKG"
         return result
-    
+
     pkg = pkg_candidates[-1]
-    install_log = repo_log_dir / "_BATCH.phase1.install.log"
     install_cmd = f"{pkg} --quiet"
-    
+
     print(f"[{repo}] Installing pkg...", flush=True)
     install_t0 = time.time()
     install_res = run_shell(install_cmd, repo_path, install_log, timeout=600)
     result["phase_durations"]["install"] = time.time() - install_t0
-    
+
     if install_res["exit_code"] != 0:
-        # fallback 不带 --quiet
+        # fallback 不带 --quiet；写独立日志，保留 --quiet 那次的失败现场
+        install_log = repo_log_dir / "_BATCH.phase1.install.fallback.log"
         install_res = run_shell(str(pkg), repo_path, install_log, timeout=600)
         if install_res["exit_code"] != 0:
             for op in buildable_ops:
                 result["ops_status"][op] = "INSTALL_FAIL"
+                result.setdefault("ops_log", {})[op] = str(install_log)
             result["status"] = "INSTALL_FAIL"
             return result
     
@@ -312,6 +379,8 @@ def run_repo_optimized(repo: str) -> dict:
                 status = "RUN_EXIT_FAIL" if run_res["exit_code"] != 0 else "RUN_PATTERN_FAIL"
 
         result["ops_status"][op] = status
+        result.setdefault("ops_log", {})[op] = str(run_log)
+        result.setdefault("ops_run_dur", {})[op] = run_res["duration_s"]
         result.setdefault("ops_verdict_reason", {})[op] = verdict_reason
         symbol = {"PASS": "✅", "UNCERTAIN": "❓"}.get(status, "❌")
         print(f"[{repo}] [{i}/{len(buildable_ops)}] {symbol} {op}: {status}", flush=True)
@@ -343,23 +412,25 @@ def sync_to_state_json(repo_results):
         init_repo(repo, list(ops_status.keys()))
         # 再逐个写状态
         durations = r.get("phase_durations", {})
-        # 平均化分摊到每个算子（合并 build 没有 per-op build 时长）
-        per_op_share = {
-            "build": durations.get("build", 0) / max(1, len(ops_status)),
-            "install": durations.get("install", 0) / max(1, len(ops_status)),
-        }
+        # 合并 build 没有 per-op build 时长，build/install 阶段按算子数平摊；
+        # run 阶段有真实 per-op 时长（ops_run_dur），优先用它。
+        share = (durations.get("build", 0) + durations.get("install", 0)) / max(1, len(ops_status))
         verdict_reasons = r.get("ops_verdict_reason", {})
+        ops_log = r.get("ops_log", {})
+        ops_run_dur = r.get("ops_run_dur", {})
         for op, status in ops_status.items():
             extra = {"mode": "batched"}
             if status == "BUILD_FAIL":
                 extra["step"] = "build"
-                extra["log_path_hint"] = r.get("build_log")
             if op in verdict_reasons:
                 extra["verdict_reason"] = verdict_reasons[op]
             if status == "UNCERTAIN":
                 extra["note"] = "exit==0 but no strong pass/fail signal — agent review needed"
+            # 跑到 run 阶段的算子用真实 run 时长；build/install 失败的用平摊值
+            duration = ops_run_dur[op] if op in ops_run_dur else share
             update_op(repo, op, "phase1", status,
-                      duration_s=per_op_share["build"] + per_op_share["install"],
+                      duration_s=duration,
+                      log_path=ops_log.get(op),
                       extra=extra)
 
 
@@ -438,11 +509,16 @@ def generate_report(repo_results, total_time):
     full_report["pass_rate"] = pass_pct
     full_report["status_distribution"] = grand_status_counts
     
-    report_file = WORK_DIR / "phase1_report_final.json"
-    WORK_DIR.mkdir(parents=True, exist_ok=True)
+    report_file = REPORT_ROOT / "phase1_report_final.json"
+    REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     with open(report_file, 'w') as f:
         json.dump(full_report, f, indent=2, ensure_ascii=False)
+
+    from state import write_summary_md
+    summary_file = write_summary_md(phase="phase1", soc=SOC)
+
     print(f"\n📄 详细报告: {report_file}")
+    print(f"📄 摘要(给人看): {summary_file}")
     print(f"⏱️  总耗时: {total_time/60:.1f} 分钟")
     
     return full_report
@@ -494,8 +570,10 @@ def main():
         except Exception as e:
             repo_results.append({"repo": target_repos[0], "status": "EXEC_ERROR", "error": str(e)})
     else:
-        # 场景 A：仓间并发 4 worker
-        with ProcessPoolExecutor(max_workers=len(target_repos)) as executor:
+        # 场景 A：仓间并发 4 worker（显式把配置注入每个 worker，spawn 平台也安全）
+        with ProcessPoolExecutor(max_workers=len(target_repos),
+                                 initializer=_init_worker,
+                                 initargs=(_worker_config(),)) as executor:
             future_to_repo = {executor.submit(run_repo_optimized, repo): repo for repo in target_repos}
             for future in as_completed(future_to_repo):
                 try:
@@ -508,7 +586,8 @@ def main():
 
     total_time = time.time() - total_start
     generate_report(repo_results, total_time)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
