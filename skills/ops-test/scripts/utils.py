@@ -86,6 +86,92 @@ def classify_log(stdout: str, stderr: str, exit_code: int) -> tuple[str, str]:
     return "UNCERTAIN", "no_strong_signal"
 
 
+def is_empty_run(stdout: str, stderr: str, duration_s: float, fast_threshold: float = 2.0) -> bool:
+    """run 步 exit0 但**实际没真跑**（有效输出为空 + 极快）。
+
+    用于 T2：把「空退没真跑」（如缺 eager 示例，`build.sh --run_example op eager` 啥也没干就退）
+    从 UNCERTAIN 里分出来归 `SKIPPED_NO_RUN_ARTIFACT`，不占「待复核」。
+    主信号是**有效输出为空**（去掉空白行后 0 行）；`<fast_threshold` 仅作辅助，避免误伤合法但慢的空输出。
+    """
+    eff = [l for l in (stdout + "\n" + stderr).splitlines() if l.strip()]
+    return not eff and duration_s < fast_threshold
+
+
+def classify_run_status(stdout: str, stderr: str, exit_code: int,
+                        duration_s: float, timed_out: bool = False) -> tuple[str, str]:
+    """run 步的**最终算子状态**：在 4 层 `classify_log` 之上加 TIMEOUT 与 T2 空退归类。
+
+    单点决策，phase_examples 与 batched runner 共用，避免两处判定漂移。
+    返回 (status, reason)，status ∈
+      {PASS, RUN_EXIT_FAIL, RUN_PATTERN_FAIL, TIMEOUT, SKIPPED_NO_RUN_ARTIFACT, UNCERTAIN}。
+    """
+    if timed_out:
+        return "TIMEOUT", "timed_out"
+    verdict, reason = classify_log(stdout, stderr, exit_code)
+    if verdict == "PASS":
+        return "PASS", reason
+    if verdict == "FAIL":
+        return ("RUN_EXIT_FAIL" if exit_code != 0 else "RUN_PATTERN_FAIL"), reason
+    # verdict == UNCERTAIN —— T2：空退没真跑 → SKIPPED_NO_RUN_ARTIFACT（不占待复核）
+    if is_empty_run(stdout, stderr, duration_s):
+        return "SKIPPED_NO_RUN_ARTIFACT", "exit0_empty_fast_no_run"
+    return "UNCERTAIN", reason
+
+
+def soc_name_to_build_soc(soc_name: str | None) -> str | None:
+    """`acl.get_soc_name()` 原始名 → build.sh 短 soc 串（T4，与 setup-env 同一映射）。
+
+    Ascend910_9382 → ascend910_93;Ascend910B3/ProB → ascend910b;Ascend910A → ascend910;
+    Ascend950* → ascend950;Ascend310P* → ascend310p;Ascend310B* → ascend310b。其它原样小写兜底。
+    """
+    if not soc_name:
+        return None
+    low = soc_name.strip().lower()
+    m = re.match(r"ascend910_(\d{2})\d*", low)        # _93xx / _55xx
+    if m:
+        return f"ascend910_{m.group(1)}"
+    if re.match(r"ascend910(pro)?b", low):
+        return "ascend910b"
+    if low.startswith("ascend910"):
+        return "ascend910"
+    if low.startswith("ascend950"):
+        return "ascend950"
+    if low.startswith("ascend310p"):
+        return "ascend310p"
+    if low.startswith("ascend310b"):
+        return "ascend310b"
+    return low
+
+
+def detect_soc(set_env: str | None = None) -> dict:
+    """用 CANN 运行时 `acl.get_soc_name()` 自动探测 soc 并映射到 build.sh 短串（T4）。
+
+    set_env 默认用 CANN_SET_ENV_SH；acl 不可用/无 NPU 权限/无 CANN 时静默返回 None。
+    返回 {raw, build_soc}。CANN 运行时把 [Warning] 打到 stdout，故用 marker 包 soc 名再 grep。
+    """
+    none = {"raw": None, "build_soc": None}
+    # 整体兜底：探测属于「best-effort」，任何异常（路径/解码/子进程/映射）都静默归 None，绝不抛。
+    try:
+        se = set_env or CANN_SET_ENV_SH
+        if not se or not Path(se).is_file():
+            return dict(none)
+        pycode = "import acl;acl.init();n=acl.get_soc_name();print('__SOC__'+str(n));acl.finalize()"
+        res = subprocess.run(
+            ["bash", "-lc", f'source "{se}" >/dev/null 2>&1; python3 -c "{pycode}"'],
+            capture_output=True, text=True, timeout=60,
+        )
+        raw = None
+        for line in res.stdout.splitlines():
+            if line.startswith("__SOC__"):
+                raw = line[len("__SOC__"):].strip()
+                break
+        if raw and not raw.lower().startswith("ascend"):
+            raw = None
+        return {"raw": raw, "build_soc": soc_name_to_build_soc(raw)}
+    except Exception:
+        return dict(none)
+
+
 @dataclass
 class CmdResult:
     cmd: str

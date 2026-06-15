@@ -3,7 +3,7 @@
 状态枚举：
   PENDING / RUNNING / PASS / BUILD_FAIL / INSTALL_FAIL /
   RUN_EXIT_FAIL / RUN_PATTERN_FAIL / UNCERTAIN /
-  TIMEOUT / SKIPPED_NO_ARTIFACT / SKIPPED_USER
+  TIMEOUT / SKIPPED_NO_ARTIFACT / SKIPPED_NO_RUN_ARTIFACT / SKIPPED_USER
 
 UNCERTAIN：四层日志判定 L3 兜底状态——exit==0 但既无强成功也无强失败信号。
   跑测中不阻塞，标记后跑完由 agent 集中判定，最终落到 PASS 或 RUN_PATTERN_FAIL。
@@ -33,7 +33,10 @@ VALID_STATUSES = {
     "PENDING", "RUNNING", "PASS",
     "BUILD_FAIL", "INSTALL_FAIL",
     "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL", "UNCERTAIN",
-    "TIMEOUT", "SKIPPED_NO_ARTIFACT", "SKIPPED_USER",
+    "TIMEOUT",
+    "SKIPPED_NO_ARTIFACT",      # 源码层：无 examples/test_*.cpp，根本没 build
+    "SKIPPED_NO_RUN_ARTIFACT",  # 运行层（T2）：build/install 过了但 run 空退没真跑（如缺 eager 示例）
+    "SKIPPED_USER",
 }
 
 
@@ -136,8 +139,9 @@ def repo_summary(repo: str, phase: str) -> dict[str, int]:
     return counts
 
 
-# 失败类状态（写 SUMMARY.md 时归入"失败明细"）
-_FAIL_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL", "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL", "TIMEOUT"}
+# 失败类状态（写 SUMMARY.md 时归入"失败明细"）。postrun.py 复用同一集合，避免两处漂移。
+FAIL_STATUSES = {"BUILD_FAIL", "INSTALL_FAIL", "RUN_EXIT_FAIL", "RUN_PATTERN_FAIL", "TIMEOUT"}
+_FAIL_STATUSES = FAIL_STATUSES  # 旧内部名别名（同一对象），保留兼容
 
 
 def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
@@ -167,7 +171,8 @@ def write_summary_md(phase: str = "phase1", soc: str = "") -> Path:
                 fail_rows.append(f"| {_md_cell(repo)} | {_md_cell(op)} | {s} | {_md_cell(st[phase].get('log_path', '—'))} |")
         total = len(ops)
         n_fail = sum(cnt.get(s, 0) for s in _FAIL_STATUSES)
-        n_skip = cnt.get("SKIPPED_NO_ARTIFACT", 0) + cnt.get("SKIPPED_USER", 0)
+        n_skip = (cnt.get("SKIPPED_NO_ARTIFACT", 0) + cnt.get("SKIPPED_NO_RUN_ARTIFACT", 0)
+                  + cnt.get("SKIPPED_USER", 0))
         solved, explored = explore_stats.get(repo, (0, 0))
         exp_cell = f"{solved}/{explored}" if explored else "—"
         lines.append(f"| {repo} | {cnt.get('PASS', 0)}/{total} | {n_fail} | {n_skip} | {cnt.get('UNCERTAIN', 0)} | {exp_cell} |")
