@@ -41,6 +41,19 @@ ENV_EXTRA: dict[str, str] = {}
 SET_ENV_SH = CANN_SET_ENV_SH
 
 
+def _available_cores() -> int:
+    """当前进程实际可用核数（感知容器 cgroup / CPU 亲和性，比 cpu_count 准）。"""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:        # 非 Linux
+        return os.cpu_count() or 16
+
+
+# build 并行度 -j：默认全核，靠 OS 调度自适应回收（某仓编完，空核自动给其余仓）。
+# 由 main() 用 --jobs 覆盖；0/未给 → 全核。子进程经 _worker_config 继承。
+JOBS: int = _available_cores()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Phase 1 batched runner (仓内合并 build + 仓间并发)")
     ap.add_argument("--repo-mapping", required=True,
@@ -58,6 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="追加到 build.sh 的额外构建参数（如 -DFOO=1）")
     ap.add_argument("--run-extra-args", default="",
                     help="追加到 run_example 命令的额外运行参数")
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="build 并行度 -j；0=自动取全部可用核（默认，靠 OS 调度自适应）")
     return ap
 
 
@@ -75,7 +90,7 @@ def _parse_env_extra(s: str) -> dict[str, str]:
 
 
 def _compose_build_cmd(*, soc: str, ops_csv: str, build_extra_args: str = "") -> str:
-    cmd = f"bash build.sh --pkg --soc={soc} --ops={ops_csv} -j16"
+    cmd = f"bash build.sh --pkg --soc={soc} --ops={ops_csv} -j{JOBS}"
     if build_extra_args:
         cmd += f" {build_extra_args}"
     return cmd
@@ -100,12 +115,13 @@ def _worker_config() -> dict:
         "soc": SOC, "cli_ops": CLI_OPS, "cli_ops_file": CLI_OPS_FILE,
         "build_extra_args": BUILD_EXTRA_ARGS, "run_extra_args": RUN_EXTRA_ARGS,
         "env_extra": ENV_EXTRA, "repo_paths": REPO_PATHS, "set_env_sh": SET_ENV_SH,
+        "jobs": JOBS,
     }
 
 
 def _init_worker(config: dict) -> None:
     """在每个 worker 进程里恢复模块全局；fork 平台是冗余、spawn 平台是必需。"""
-    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH, JOBS
     SOC = config["soc"]
     CLI_OPS = config["cli_ops"]
     CLI_OPS_FILE = config["cli_ops_file"]
@@ -114,6 +130,7 @@ def _init_worker(config: dict) -> None:
     ENV_EXTRA = config["env_extra"]
     REPO_PATHS = config["repo_paths"]
     SET_ENV_SH = config["set_env_sh"]
+    JOBS = config["jobs"]
 
 # 判定逻辑统一来自 utils.py（避免漂移）
 from utils import classify_run_status  # noqa: E402
@@ -522,7 +539,7 @@ def main():
     ap = _build_parser()
     args = ap.parse_args()
 
-    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, JOBS
     SOC = args.soc
     if not SOC:  # T4：--soc 未给 → 自动探测 acl.get_soc_name() 并映射，探不到才报错让 skill 问用户
         _det = detect_soc(SET_ENV_SH)
@@ -536,6 +553,7 @@ def main():
     BUILD_EXTRA_ARGS = args.build_extra_args
     RUN_EXTRA_ARGS = args.run_extra_args
     ENV_EXTRA = _parse_env_extra(args.env_extra)
+    JOBS = args.jobs if args.jobs > 0 else _available_cores()
 
     REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
     target_repos = list(REPO_PATHS.keys())
@@ -548,6 +566,7 @@ def main():
     else:
         print(f"   策略：仓间并发({len(target_repos)}) + 仓内合并 build")
     print(f"   SOC: {SOC}")
+    print(f"   build -j: {JOBS}（全核自适应；--jobs 可覆盖）")
     print(f"   set_env.sh: {SET_ENV_SH}")
     print()
 
