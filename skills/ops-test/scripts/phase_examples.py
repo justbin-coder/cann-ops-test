@@ -26,7 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from state import init_repo, update_op  # noqa: E402
 from utils import (  # noqa: E402
-    append_ld_library_path, ensure_log_path, find_run_pkg, run_cmd, vendor_name_for,
+    append_ld_library_path, classify_run_status, ensure_log_path, find_run_pkg,
+    run_cmd, vendor_name_for,
 )
 
 
@@ -96,30 +97,14 @@ def run_example(repo: str, repo_path: Path, op: str, timeout: int) -> tuple[bool
 
     res = run_cmd(cmd, repo_path, timeout=timeout, log_path=log, env=env)
 
-    if res.timed_out:
-        update_op(repo, op, "phase1", "TIMEOUT", res.duration_s, str(log),
-                  extra={"step": "run_example"})
-        return False, "TIMEOUT"
-
-    verdict, reason = res.classify()
-
-    if verdict == "FAIL":
-        # exit!=0 → RUN_EXIT_FAIL；exit==0 但强失败模式命中 → RUN_PATTERN_FAIL
-        status = "RUN_EXIT_FAIL" if res.exit_code != 0 else "RUN_PATTERN_FAIL"
-        update_op(repo, op, "phase1", status, res.duration_s, str(log),
-                  extra={"step": "run_example", "exit_code": res.exit_code,
-                         "verdict_reason": reason})
-        return False, status
-
-    if verdict == "UNCERTAIN":
-        update_op(repo, op, "phase1", "UNCERTAIN", res.duration_s, str(log),
-                  extra={"step": "run_example", "exit_code": res.exit_code,
-                         "verdict_reason": reason,
-                         "note": "exit==0 but no strong pass/fail signal — agent review needed"})
-        return False, "UNCERTAIN"
-
-    update_op(repo, op, "phase1", "PASS", res.duration_s, str(log))
-    return True, "PASS"
+    # 单点判定（含 TIMEOUT + T2 空退归 SKIPPED_NO_RUN_ARTIFACT），与 batched runner 共用
+    status, reason = classify_run_status(res.stdout, res.stderr, res.exit_code,
+                                         res.duration_s, res.timed_out)
+    extra = {"step": "run_example", "exit_code": res.exit_code, "verdict_reason": reason}
+    if status == "UNCERTAIN":
+        extra["note"] = "exit==0 but no strong pass/fail signal — agent review needed"
+    update_op(repo, op, "phase1", status, res.duration_s, str(log), extra=extra)
+    return status == "PASS", status
 
 
 def process_op(repo: str, repo_path: Path, op: str, soc: str,
