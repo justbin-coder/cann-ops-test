@@ -19,7 +19,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import (  # noqa: E402
-    resolve_ops, OpsResolutionError, CANN_SET_ENV_SH, parse_repo_mapping,
+    resolve_ops, OpsResolutionError, CANN_SET_ENV_SH, parse_repo_mapping, detect_soc,
 )
 
 # 所有产物按仓写到 CWD/cann-ops-report/<repo>/test/，不写 skill 安装目录
@@ -41,12 +41,26 @@ ENV_EXTRA: dict[str, str] = {}
 SET_ENV_SH = CANN_SET_ENV_SH
 
 
+def _available_cores() -> int:
+    """当前进程实际可用核数（感知容器 cgroup / CPU 亲和性，比 cpu_count 准）。"""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:        # 非 Linux
+        return os.cpu_count() or 16
+
+
+# build 并行度 -j：默认全核，靠 OS 调度自适应回收（某仓编完，空核自动给其余仓）。
+# 由 main() 用 --jobs 覆盖；0/未给 → 全核。子进程经 _worker_config 继承。
+JOBS: int = _available_cores()
+
+
 def _build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Phase 1 batched runner (仓内合并 build + 仓间并发)")
     ap.add_argument("--repo-mapping", required=True,
                     help="仓名到本地路径的映射，CSV 格式：repo1=path1,repo2=path2,...")
-    ap.add_argument("--soc", required=True,
-                    help="目标 SOC 名称（如 ascend910b / ascend950 等）")
+    ap.add_argument("--soc", default="",
+                    help="目标 SOC（如 ascend910b / ascend950 等）。不给则 T4 用 acl.get_soc_name() "
+                         "自动探测+映射；探不到才报错让 skill 询问用户")
     ap.add_argument("--ops", default="",
                     help="目标算子 CSV，例如 op1,op2,op3")
     ap.add_argument("--ops-file", default="",
@@ -57,6 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="追加到 build.sh 的额外构建参数（如 -DFOO=1）")
     ap.add_argument("--run-extra-args", default="",
                     help="追加到 run_example 命令的额外运行参数")
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="build 并行度 -j；0=自动取全部可用核（默认，靠 OS 调度自适应）")
     return ap
 
 
@@ -74,7 +90,7 @@ def _parse_env_extra(s: str) -> dict[str, str]:
 
 
 def _compose_build_cmd(*, soc: str, ops_csv: str, build_extra_args: str = "") -> str:
-    cmd = f"bash build.sh --pkg --soc={soc} --ops={ops_csv} -j16"
+    cmd = f"bash build.sh --pkg --soc={soc} --ops={ops_csv} -j{JOBS}"
     if build_extra_args:
         cmd += f" {build_extra_args}"
     return cmd
@@ -99,12 +115,13 @@ def _worker_config() -> dict:
         "soc": SOC, "cli_ops": CLI_OPS, "cli_ops_file": CLI_OPS_FILE,
         "build_extra_args": BUILD_EXTRA_ARGS, "run_extra_args": RUN_EXTRA_ARGS,
         "env_extra": ENV_EXTRA, "repo_paths": REPO_PATHS, "set_env_sh": SET_ENV_SH,
+        "jobs": JOBS,
     }
 
 
 def _init_worker(config: dict) -> None:
     """在每个 worker 进程里恢复模块全局；fork 平台是冗余、spawn 平台是必需。"""
-    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, REPO_PATHS, SET_ENV_SH, JOBS
     SOC = config["soc"]
     CLI_OPS = config["cli_ops"]
     CLI_OPS_FILE = config["cli_ops_file"]
@@ -113,9 +130,10 @@ def _init_worker(config: dict) -> None:
     ENV_EXTRA = config["env_extra"]
     REPO_PATHS = config["repo_paths"]
     SET_ENV_SH = config["set_env_sh"]
+    JOBS = config["jobs"]
 
 # 判定逻辑统一来自 utils.py（避免漂移）
-from utils import classify_log  # noqa: E402
+from utils import classify_run_status  # noqa: E402
 
 
 def extract_ops(repo: str) -> list:
@@ -363,26 +381,19 @@ def run_repo_optimized(repo: str) -> dict:
         
         run_res = run_shell(run_cmd, repo_path, run_log, timeout=300)
         
-        if run_res["timed_out"]:
-            status = "TIMEOUT"
-            verdict_reason = "timeout"
-        else:
-            verdict, verdict_reason = classify_log(
-                run_res["stdout"], run_res["stderr"], run_res["exit_code"]
-            )
-            if verdict == "PASS":
-                status = "PASS"
-                pass_count += 1
-            elif verdict == "UNCERTAIN":
-                status = "UNCERTAIN"
-            else:  # FAIL
-                status = "RUN_EXIT_FAIL" if run_res["exit_code"] != 0 else "RUN_PATTERN_FAIL"
+        # 单点判定（含 TIMEOUT + T2 空退归 SKIPPED_NO_RUN_ARTIFACT），与 phase_examples 共用
+        status, verdict_reason = classify_run_status(
+            run_res["stdout"], run_res["stderr"], run_res["exit_code"],
+            run_res["duration_s"], run_res["timed_out"],
+        )
+        if status == "PASS":
+            pass_count += 1
 
         result["ops_status"][op] = status
         result.setdefault("ops_log", {})[op] = str(run_log)
         result.setdefault("ops_run_dur", {})[op] = run_res["duration_s"]
         result.setdefault("ops_verdict_reason", {})[op] = verdict_reason
-        symbol = {"PASS": "✅", "UNCERTAIN": "❓"}.get(status, "❌")
+        symbol = {"PASS": "✅", "UNCERTAIN": "❓", "SKIPPED_NO_RUN_ARTIFACT": "⏭️"}.get(status, "❌")
         print(f"[{repo}] [{i}/{len(buildable_ops)}] {symbol} {op}: {status}", flush=True)
     
     result["phase_durations"]["run"] = time.time() - run_t0
@@ -528,13 +539,21 @@ def main():
     ap = _build_parser()
     args = ap.parse_args()
 
-    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA
+    global SOC, CLI_OPS, CLI_OPS_FILE, BUILD_EXTRA_ARGS, RUN_EXTRA_ARGS, ENV_EXTRA, JOBS
     SOC = args.soc
+    if not SOC:  # T4：--soc 未给 → 自动探测 acl.get_soc_name() 并映射，探不到才报错让 skill 问用户
+        _det = detect_soc(SET_ENV_SH)
+        SOC = _det.get("build_soc") or ""
+        if SOC:
+            print(f"   SOC 自动探测：{_det.get('raw')} → {SOC}")
+        else:
+            ap.error("--soc 未给且自动探测失败（acl 不可用 / 无 NPU 权限 / 无 CANN）；请显式传 --soc")
     CLI_OPS = args.ops
     CLI_OPS_FILE = args.ops_file
     BUILD_EXTRA_ARGS = args.build_extra_args
     RUN_EXTRA_ARGS = args.run_extra_args
     ENV_EXTRA = _parse_env_extra(args.env_extra)
+    JOBS = args.jobs if args.jobs > 0 else _available_cores()
 
     REPO_PATHS.update(parse_repo_mapping(args.repo_mapping))
     target_repos = list(REPO_PATHS.keys())
@@ -547,15 +566,21 @@ def main():
     else:
         print(f"   策略：仓间并发({len(target_repos)}) + 仓内合并 build")
     print(f"   SOC: {SOC}")
+    print(f"   build -j: {JOBS}（全核自适应；--jobs 可覆盖）")
     print(f"   set_env.sh: {SET_ENV_SH}")
     print()
 
+    from state import init_repo  # noqa: E402
     for repo in target_repos:
         try:
             ops = extract_ops(repo)
         except OpsResolutionError as e:
             print(f"   {repo:20s}  ✗ {e}", flush=True)
             return 2
+        # 跑前先把全部目标算子播种为 PENDING（init_repo 幂等、保留旧状态）。worker 崩了（EXEC_ERROR
+        # 整仓无 ops_status，sync 会跳过）时，算子仍停在 PENDING → postrun 闸门据此判 ACTION_REQUIRED，
+        # 不会把崩掉的仓当「完成」漏掉。
+        init_repo(repo, ops)
         print(f"   {repo:20s}  {len(ops):2d} 个目标算子（path={REPO_PATHS[repo]}）")
     print()
 
@@ -586,7 +611,15 @@ def main():
 
     total_time = time.time() - total_start
     generate_report(repo_results, total_time)
-    return 0
+
+    # T1 防绕过闸门：扫 run_state 出待办队列；有失败/待复核则整轮 ACTION_REQUIRED + 退出码 3
+    from postrun import postrun_gate
+    completion, actions_path, code = postrun_gate(phase="phase1")
+    print(f"\n🚦 整轮状态：{completion}  (postrun_actions: {actions_path})", flush=True)
+    if code != 0:
+        print("   ⚠ ACTION_REQUIRED：有失败/待复核算子待 agent 处理（FAQ→续跑→P6 / UNCERTAIN 复核）；"
+              "直跑 runner 不算收尾。退出码 3（≠ 退出码 2 的 usage/解析失败）。", flush=True)
+    return code
 
 
 if __name__ == '__main__':
