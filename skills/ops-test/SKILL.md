@@ -99,7 +99,7 @@ ops-transformer 还没被 scann-repo 扫描过。请选择：
 - 用户给文件路径 → `--ops-file <path>`（支持 `.json` 含 `unique_targets` / 顶层 list / 一行一算子的纯文本）
 - 用 scann 产物 → 不传 `--ops` / `--ops-file`，runner 自动 fallback 到 `_intermediate.json`
 
-### P1 — 询问用户 SOC（中文交互）
+### P1 — 确定 SOC（中文交互）
 
 如果用户在请求里没明示 SOC（如"对 ascend910b 跑测"），skill 必须用 `AskUserQuestion` 询问：
 
@@ -108,10 +108,17 @@ ops-transformer 还没被 scann-repo 扫描过。请选择：
   - ascend910b
   - ascend950
   - ascend310p
+  - 自动探测（让 runner 用 acl.get_soc_name() 读真机芯片）
   - 其它（请输入）
 ```
 
-收集到的 SOC 字符串后续作为 `--soc <soc>` 传入所有 runner 脚本。**不假设默认值**，必须用户确认。
+收集到的 SOC 字符串后续作为 `--soc <soc>` 传入所有 runner 脚本。**不臆测默认值**。
+
+**T4 — SOC 自动探测兜底**：用户选"自动探测"、或不传 `--soc` 时，`run_phase1_batched.py`
+会用 CANN 运行时 `acl.get_soc_name()` 读真机芯片名（如 `Ascend910_9382`），经
+`utils.soc_name_to_build_soc()` 映射到 build.sh 短串（→ `ascend910_93`）。
+探测成功会打印 `SOC 自动探测：<raw> → <build_soc>`；**探不到**（acl 不可用 / 无 NPU 权限 / 无 CANN）
+则 runner 报错退出，回到本节让用户显式给 SOC。映射规则见 `scripts/utils.py:soc_name_to_build_soc`。
 
 ### P2 — CANN 环境
 
@@ -173,7 +180,38 @@ SOC 用 `--soc <soc>` 传入（来自 P1）。
 5. **P2 状态检查**：读 `CWD/cann-ops-report/<repo>/test/run_state.json`，识别已 PASS 与 SKIPPED 算子（续跑跳过）
 6. **环境就绪**：runner 内部已强制 source set_env.sh，无需用户操作
 7. **执行**：起后台任务，日志 tail 到 `/tmp/phase1_*.log`
-8. **报告**：跑完后输出每仓 PASS/FAIL 汇总，按需生成最终报告
+8. **收尾闸门（T1）**：runner 跑完调 `postrun.postrun_gate()`，扫 run_state 出待办队列写
+   `CWD/cann-ops-report/postrun_actions.json`。若有失败 / 待复核算子 → 整轮 `ACTION_REQUIRED` +
+   **退出码 3**（≠ 退出码 2 的 usage / `OpsResolutionError`），SUMMARY 打水印。见下「收尾闸门」节。
+9. **报告**：跑完后输出每仓 PASS/FAIL 汇总，按需生成最终报告
+
+## 收尾闸门（T1 防绕过）— 退出码 3 必须消费
+
+P5.5 FAQ 查询 / P5.7 自动续跑 / P6 探索 / UNCERTAIN 复核 都是 **skill agent 节点**；
+直接 `python3 run_phase1_batched.py` 只跑 build/install/run，会把这些全绕过却仍声称"完成"。
+故 runner 末尾加闸门 `scripts/postrun.py:postrun_gate()`：
+
+- 跑完扫 run_state → 产出 `postrun_actions.json`（三队列）：
+  - `failed_ops`：status ∈ {BUILD_FAIL, INSTALL_FAIL, RUN_EXIT_FAIL, RUN_PATTERN_FAIL, TIMEOUT} 的算子（走 FAQ→续跑→P6→上报）
+  - `uncertain_reviews`：status == UNCERTAIN 的算子（T3：待 agent 复核落成 PASS / RUN_PATTERN_FAIL）
+  - `incomplete_ops`：PENDING / RUNNING / 未知状态的算子——**没真正跑完**（worker 崩了整仓无结果、或被中断）。
+    runner 跑前已用 `init_repo` 把目标算子播种为 PENDING，故崩掉的仓不会从闸门视野里消失。
+  - （`PASS` / `SKIPPED_*` 已结算，不入队）
+- 三队列全空 → `COMPLETE`（退出码 0）；任一非空 → `ACTION_REQUIRED`（**退出码 3**）+ SUMMARY 顶部水印。
+
+**skill agent 义务**：看到 runner 退出码 3 / `ACTION_REQUIRED`，**不得**对用户声称"本轮跑测完成"。
+必须读 `postrun_actions.json`，把 `failed_ops` 走 P5.5 FAQ → P5.7 续跑 →（确认后）P6 探索 / 上报，
+把 `uncertain_reviews` 逐个复核（见下「UNCERTAIN 复核」），全部处理完才算这一轮收尾。
+
+### UNCERTAIN 复核（T3）
+
+UNCERTAIN = 四层判定 L3 兜底（exit==0 但既无强成功也无强失败信号）。跑测中不阻塞；
+闸门把它收进 `uncertain_reviews`。agent 复核时读该算子 run 日志 + examples 期望输出，
+人工判定后**落成 PASS 或 RUN_PATTERN_FAIL**（UNCERTAIN 不是终态）。
+
+> **T2 — 空退归类**：run 步 `exit==0` 但**有效输出为空且极快**（如缺 eager 示例、`--run_example` 啥也没干就退）
+> 不再误归 UNCERTAIN 占用待复核，而是 `SKIPPED_NO_RUN_ARTIFACT`（运行层跳过，区别于源码层无 examples 的
+> `SKIPPED_NO_ARTIFACT`）。判定见 `utils.classify_run_status` / `utils.is_empty_run`。
 
 ## 实时进度输出
 
@@ -307,3 +345,4 @@ hits = lookup_all_failed(failed_ops)
 - ✗ 不重装 CANN，只 source `set_env.sh`
 - ✗ 不凭空捏造错误信息（必须 grep 日志）
 - ✗ 不在跑测中途生成报告
+- ✗ runner 退出码 3 / `ACTION_REQUIRED` 时不得声称"跑测完成"——必须先消费 `postrun_actions.json`（T1）
