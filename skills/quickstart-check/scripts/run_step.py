@@ -86,6 +86,8 @@ def main() -> int:
     ap.add_argument("--verdict", choices=sorted(_state.VERDICTS))
     ap.add_argument("--defect", default=None, help="文档缺陷描述")
     ap.add_argument("--fix", default=None, help="修订建议(文档应补/改成什么)")
+    ap.add_argument("--injected-fix", default=None,
+                    help="探索趟专用:为绕过本步文档缺陷,实际注入的修复(只能是本 skill 提出的修订建议,如 source/soc/proxy)")
     # 记元模式参数
     ap.add_argument("--doc", help="选定文档(相对仓根)")
     ap.add_argument("--prereq", action="append", default=[], help="文档声明的前提(可多次)")
@@ -101,11 +103,13 @@ def main() -> int:
     if args.judge:
         if args.idx is None or not args.verdict:
             ap.error("--judge 需 --idx 与 --verdict")
-        ok = _state.set_verdict(args.repo, args.idx, args.verdict, args.defect, args.fix)
+        ok = _state.set_verdict(args.repo, args.idx, args.verdict, args.defect, args.fix,
+                                args.injected_fix)
         if not ok:
             print(f"[ERROR] 找不到 idx={args.idx} 的步骤(先执行再判定)", file=sys.stderr)
             return 1
-        print(f"[judge] {args.repo} #{args.idx} → {args.verdict}")
+        print(f"[judge] {args.repo} #{args.idx} → {args.verdict}"
+              + (f"  (注入修复: {args.injected_fix})" if args.injected_fix else ""))
         return 0
 
     # 执行模式

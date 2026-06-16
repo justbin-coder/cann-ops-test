@@ -77,8 +77,13 @@ def upsert_step(repo: str, record: dict) -> None:
 
 
 def set_verdict(repo: str, idx: int, verdict: str, defect: str | None = None,
-                fix: str | None = None) -> bool:
-    """agent 给某步打判定 + (可选)缺陷描述 + 修订建议。返回是否找到该步。"""
+                fix: str | None = None, injected_fix: str | None = None) -> bool:
+    """agent 给某步打判定 + (可选)缺陷描述 + 修订建议 + (探索趟)注入的修复。返回是否找到该步。
+
+    injected_fix:**探索趟**专用——为绕过本步的文档缺陷,实际注入了哪些「文档外但属本 skill
+    提出的修订建议」的东西(如 `source set_env.sh`、`--soc ascend910b→ascend910_93`、`http_proxy`)。
+    忠实趟此字段恒空。
+    """
     if verdict not in VERDICTS:
         raise ValueError(f"invalid verdict: {verdict}; allowed {sorted(VERDICTS)}")
     steps = load_steps(repo)
@@ -89,6 +94,8 @@ def set_verdict(repo: str, idx: int, verdict: str, defect: str | None = None,
                 s["defect"] = defect
             if fix is not None:
                 s["fix_suggestion"] = fix
+            if injected_fix is not None:
+                s["injected_fix"] = injected_fix
             save_steps(repo, steps)
             return True
     return False

@@ -103,3 +103,34 @@ def test_render_passed(tmp_path, monkeypatch):
     md = render_report.render("ops-y")
     assert "能纯按文档跑通" in md
     assert "未发现文档缺陷" in md
+
+
+# ---- 两趟:injected_fix 字段 + 探索趟报告 ----
+
+def test_injected_fix_stored(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    work = tmp_path / "w"; work.mkdir()
+    run_step.execute("ops-nn/explored", 1, str(work), "echo built")
+    # 探索趟:注入修复 + 判定
+    assert _state.set_verdict("ops-nn/explored", 1, "OK",
+                              injected_fix="source set_env.sh; --soc ascend910b→ascend910_93")
+    s = _state.load_steps("ops-nn/explored")[0]
+    assert s["injected_fix"].startswith("source set_env.sh")
+    assert s["verdict"] == "OK"
+
+
+def test_explored_report_has_injected_column(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    work = tmp_path / "w"; work.mkdir()
+    run_step.execute("r/explored", 1, str(work), "echo build")
+    run_step.execute("r/explored", 2, str(work), "exit 1")
+    _state.set_verdict("r/explored", 1, "OK", injected_fix="source CANN + 代理")
+    _state.set_verdict("r/explored", 2, "FAIL", defect="非文档缺陷:NPU 运行时错", injected_fix="source CANN")
+    md = render_report.render("r/explored", kind="explored")
+    assert "探索趟" in md and "注入修复" in md          # 探索趟标题 + 台账列
+    assert "source CANN + 代理" in md                   # injected_fix 进了报告
+    assert "本趟实际注入" in md                          # 缺陷段展示注入
+    assert "止于第 2 步" in md or "终止详情" in md        # 探索趟用「止于/终止」措辞
+    # 忠实趟默认无注入列
+    md_f = render_report.render("r/explored", kind="faithful")
+    assert "注入修复" not in md_f
