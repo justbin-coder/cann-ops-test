@@ -110,3 +110,61 @@ def test_render_two_sections_and_gate(tmp_path, monkeypatch):
     assert "--opkernel_test" in md and "适当配置 tiling" in md
     assert "待补" in md and "无证据条" in md          # 无证据的被踢进待补,不进事实问题正文
     assert "不合格" in md                             # trustworthy 轴有 CONFIRMED → 不合格
+
+
+# ---- TE-1:axes_evaluated 缺省=全评(向后兼容);给了子集 → 未列轴标「本轮未评」 ----
+
+def test_unevaluated_axis(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    _state.save_meta("ops-x", {"doc": "docs/zh/develop/g.md", "type": "教学型", "audience": "x",
+                               "code_root": "/x", "axes_evaluated": ["trustworthy"]})
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "trustworthy", "form": "错",
+                                 "source": "code_mismatch", "quote": "x", "verdict": "SUSPECTED",
+                                 "evidence_grade": "medium", "code_location": "build.sh:1", "improvement": "改"})
+    md = render_report.render("ops-x")
+    assert md.count("本轮未评") == 4                 # 5 轴里只评了 trustworthy,其余 4 轴未评
+    assert "g-gray" in render_report.render_html("ops-x")
+    # 缺省字段 → 向后兼容(不出现「本轮未评」)
+    _state.save_meta("ops-x", {"doc": "docs/zh/develop/g.md", "type": "教学型", "audience": "x", "code_root": "/x"})
+    assert "本轮未评" not in render_report.render("ops-x")
+
+
+# ---- TE-2:同一教程行号、同 cls 的跨轴重复 → 折叠保留证据最强,记 also_hit ----
+
+def test_dedup_by_docline(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    _state.save_meta("ops-x", {"doc": "docs/zh/develop/guide.md", "type": "教学型", "audience": "x", "code_root": "/x"})
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "trustworthy", "form": "错", "source": "code_mismatch",
+                                 "quote": "信得过版", "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
+                                 "code_location": "ops-nn/docs/zh/develop/guide.md:100 真证据", "improvement": "改"})
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "readable", "form": "错", "source": "self_contradiction",
+                                 "quote": "读得懂版", "verdict": "SUSPECTED", "evidence_grade": "medium",
+                                 "code_location": "guide.md:100 弱证据", "improvement": "改2"})
+    md = render_report.render("ops-x")
+    assert "另命中此处的轴:读得懂" in md             # readable 被折叠进 trustworthy,留痕
+    assert "| 信得过 | 不合格 | 1 |" in md            # 证据最强(CONFIRMED/trustworthy)胜出
+    assert "| 读得懂 | 合格 | 0 |" in md             # readable 那条已折叠走,不再计数
+    assert "信得过版" in md and "读得懂版" not in md   # 正文只留胜出条的原文
+    # 不同行不折叠
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "readable", "form": "错", "source": "code_mismatch",
+                                 "quote": "另一行", "verdict": "SUSPECTED", "evidence_grade": "weak",
+                                 "code_location": "guide.md:200", "improvement": "改3"})
+    assert "另一行" in render_report.render("ops-x")
+
+
+# ---- TE-3:render_html 出卡片/折叠/三态色标,且自校验闸把无证据条落「待补」段 ----
+
+def test_render_html(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    _state.save_meta("ops-x", {"doc": "docs/zh/develop/g.md", "type": "教学型", "audience": "x", "code_root": "/x"})
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "trustworthy", "form": "错", "source": "code_mismatch",
+                                 "quote": "GlobalTensor<T> x_;", "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
+                                 "code_location": "g.md:5", "improvement": "改"})
+    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "readable", "quote": "无证据",
+                                 "verdict": "SUSPECTED", "improvement": "x"})   # 缺 code_location → 待补
+    h = render_report.render_html("ops-x")
+    assert h.strip().endswith("</html>")
+    assert 'class="card v-red"' in h and "<details>" in h     # 卡片 + 折叠
+    assert "确认对不上" in h                                    # 三态中文 + 色标
+    assert "GlobalTensor&lt;T&gt;" in h                        # HTML 转义(< > 不破坏结构)
+    assert "待补" in h and "无证据" in h                        # 自校验闸:无证据条落待补段
