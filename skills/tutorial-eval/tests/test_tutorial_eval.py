@@ -168,3 +168,46 @@ def test_render_html(tmp_path, monkeypatch):
     assert "确认对不上" in h                                    # 三态中文 + 色标
     assert "GlobalTensor&lt;T&gt;" in h                        # HTML 转义(< > 不破坏结构)
     assert "待补" in h and "无证据" in h                        # 自校验闸:无证据条落待补段
+
+
+# ---- linkcheck(T0):死文件链 + 死锚点 ----
+
+def test_linkcheck(tmp_path):
+    import linkcheck
+    (tmp_path / "a.md").write_text(
+        "[死链](./nope.cpp)\n[活锚](./b.md#标题)\n[死锚](./b.md#不存在)\n", encoding="utf-8")
+    (tmp_path / "b.md").write_text("## 标题\n正文", encoding="utf-8")
+    fs = linkcheck.find_broken_links(str(tmp_path))
+    cats = sorted(f["category"] for f in fs)
+    assert cats == ["C1.1", "C1.2"]                       # 一条死文件 + 一条死锚,活锚不报
+    assert all(f["impact"] == "misleading" for f in fs)
+
+
+# ---- support_table_check(T0):同算子两篇文档支持表自相矛盾 ----
+
+def test_support_table_contradiction(tmp_path):
+    import support_table_check
+    op = tmp_path / "myop"
+    (op / "op_host").mkdir(parents=True)
+    (op / "README.md").write_text("| <term>Atlas A2 训练系列产品</term> | √ |\n", encoding="utf-8")
+    (op / "docs").mkdir()
+    (op / "docs" / "aclnnMyOp.md").write_text("| <term>Atlas A2 训练系列产品</term> | × |\n", encoding="utf-8")
+    fs = support_table_check.check(str(tmp_path))
+    assert len(fs) == 1
+    assert fs[0]["category"] == "C7.1" and fs[0]["verdict"] == "CONFIRMED_MISMATCH"
+
+
+# ---- render:阻断排在误导前 + 影响列存在 ----
+
+def test_render_impact_sort(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    _state.save_meta("r", {"doc": "t.md", "axes_evaluated": ["trustworthy"]})
+    base = dict(cls="quantifiable", axis="trustworthy", verdict="CONFIRMED_MISMATCH",
+                improvement="fix", code_location="x:1")
+    _state.save_findings("r", [
+        {**base, "quote": "MINOR_ONE", "impact": "minor"},
+        {**base, "quote": "BLOCKER_ONE", "impact": "blocker"},
+    ])
+    md = render_report.render("r")
+    assert "🔴阻断" in md and "影响" in md
+    assert md.index("BLOCKER_ONE") < md.index("MINOR_ONE")    # 阻断排前

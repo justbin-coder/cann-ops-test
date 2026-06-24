@@ -34,6 +34,14 @@ NONQUANT_VERDICTS = {"TEACHING_JUDGMENT", "SUSPECTED_CONCEPT_RISK", "CONFIRMED_C
 DEFECT_VERDICTS = {"CONFIRMED_MISMATCH", "SUSPECTED",
                    "TEACHING_JUDGMENT", "SUSPECTED_CONCEPT_RISK", "CONFIRMED_CONCEPT_WRONG"}
 
+# v4:开发者影响(正交维度,可选)。按「后果+方向」判,不按 category 机械映射。
+IMPACT = {"blocker", "misleading", "minor"}
+IMPACT_ZH = {"blocker": "阻断", "misleading": "误导", "minor": "瑕疵"}
+IMPACT_ORDER = {"blocker": 0, "misleading": 1, "minor": 2}   # 报告排序:阻断在前
+# v4:成因标签(正交维度,可选),首批高频根因
+ROOT_CAUSES = {"copy_paste_not_updated", "version_or_contract_drift",
+               "template_placeholder_left", "fabricated_template_tree"}
+
 
 def repo_dir(repo: str) -> Path:
     return TUTEVAL_ROOT / repo

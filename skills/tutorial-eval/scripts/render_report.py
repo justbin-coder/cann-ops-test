@@ -78,6 +78,18 @@ def _dedup(findings: list, docbase: str) -> list:
     return [winners[tok[1]] if tok[0] == "K" else tok[1] for tok in seq]
 
 
+def _imp_rank(f: dict) -> int:
+    """v4:按开发者影响排序,阻断(0)→误导(1)→瑕疵(2);未标按误导处理。"""
+    return _state.IMPACT_ORDER.get(f.get("impact"), 1)
+
+
+_IMP_LABEL = {"blocker": "🔴阻断", "misleading": "🟠误导", "minor": "⚪瑕疵"}
+
+
+def _imp_label(f: dict) -> str:
+    return _IMP_LABEL.get(f.get("impact"), "—")
+
+
 def _partition(repo: str):
     """共享:读 meta/findings → 自校验闸分 valid/needs_fix → 跨轴去重 → 分可量化/不可量化。"""
     meta = _state.load_meta(repo)
@@ -96,7 +108,7 @@ def _partition(repo: str):
     defects = [f for f in valid if f.get("verdict") in _state.DEFECT_VERDICTS]
     quant = [f for f in defects if f.get("cls") == "quantifiable"]
     nonquant = [f for f in defects if f.get("cls") == "non_quantifiable"]
-    quant.sort(key=lambda f: (f.get("verdict") != "CONFIRMED_MISMATCH", f.get("idx", 0)))
+    quant.sort(key=lambda f: (_imp_rank(f), f.get("verdict") != "CONFIRMED_MISMATCH", f.get("idx", 0)))
     return meta, valid, needs_fix, quant, nonquant
 
 
@@ -142,6 +154,11 @@ def render(repo: str) -> str:
         L.append(f"| {name} | {grade} | {cnt} |")
     L.append("")
     L.append(f"- **可量化缺陷**(高置信,可计数):{len(quant)}  ·  **教学判断**(只定性,不计分):{len(nonquant)}")
+    _alldef = quant + nonquant
+    _ic = lambda k: sum(1 for f in _alldef if (f.get("impact") or "") == k)
+    _none = sum(1 for f in _alldef if not f.get("impact"))
+    L.append(f"- **开发者影响**:🔴阻断 {_ic('blocker')} · 🟠误导 {_ic('misleading')} · ⚪瑕疵 {_ic('minor')}"
+             + (f" · 未标 {_none}" if _none else "") + "(阻断优先修;瑕疵可缓)")
     if needs_fix:
         L.append(f"- ⚠ **{len(needs_fix)} 条未过自校验闸**(无证据/无判例),见文末「待补」,**不计入结论**")
     L.append("")
@@ -151,11 +168,11 @@ def render(repo: str) -> str:
     if not quant:
         L.append("（未发现可量化事实问题。）\n")
     else:
-        L.append("| # | 文档原文 | 轴·形态·来源 | 证据等级 | 三态 | 代码位置 | 改进建议 |")
-        L.append("|---|---|---|---|---|---|---|")
+        L.append("| # | 影响 | 文档原文 | 轴·形态·来源 | 证据等级 | 三态 | 代码位置 | 改进建议 |")
+        L.append("|---|---|---|---|---|---|---|---|")
         for f in quant:
             tag = f"{_state.AXIS_ZH.get(f.get('axis'),'?')}·{_cell(f.get('form'))}·{_cell(f.get('source'))}"
-            L.append(f"| {f.get('idx')} | {_cell(f.get('quote'))} | {tag} | {_cell(f.get('evidence_grade'))} | "
+            L.append(f"| {f.get('idx')} | {_imp_label(f)} | {_cell(f.get('quote'))} | {tag} | {_cell(f.get('evidence_grade'))} | "
                      f"**{_cell(f.get('verdict'))}** | `{_cell(f.get('code_location'))}` | {_cell(f.get('improvement'))} |")
         L.append("")
         for f in quant:
