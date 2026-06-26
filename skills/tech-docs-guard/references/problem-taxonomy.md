@@ -1,4 +1,4 @@
-# tutorial-eval 问题分类(重点检查清单)
+# tech-docs-guard 问题分类(重点检查清单)
 
 > 目的:把 ops-nn《AI Core 算子开发指南》真体检暴露的问题**沉淀成可复用的检查类目**,
 > 让 skill 后续**按类系统化排查**(finder 拿它当 checklist,逐项过)。

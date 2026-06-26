@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import json
 import re
 import sys
 from datetime import datetime
@@ -143,7 +144,7 @@ def render(repo: str) -> str:
     L.append(f"> 教程:`{meta.get('doc', '(未记录)')}` · 类型:{meta.get('type', '?')} · "
              f"受众:{meta.get('audience', '?')} · 代码根:`{meta.get('code_root', '?')}`")
     L.append(f"> 生成:{datetime.now().isoformat(timespec='seconds')} · "
-             "skill `cann-ops:tutorial-eval` —— 通读+对照代码**静态**评(默认不跑);"
+             "skill `cann-ops:tech-docs-guard` —— 通读+对照代码**静态**评(默认不跑);"
              "**不打玄学分、grep 不到≠编造**。\n")
 
     # 一、五轴总评
@@ -206,147 +207,108 @@ def render(repo: str) -> str:
     return "\n".join(L)
 
 
-# ================================ HTML ================================
+# ================================ HTML（华为风设计引擎 + DATA 注入）================================
+# 产物 = templates/report-engine.html（自包含 CSS+JS 引擎，勿改）+ 从 findings 映射的 DATA 数组。
+# 汇总条/数字/阻断横幅/按文件表/筛选/分组/修改清单全部由引擎 JS 从 DATA 现算。
 
-_VCLASS = {"CONFIRMED_MISMATCH": "v-red", "CONFIRMED_CONCEPT_WRONG": "v-red",
-           "SUSPECTED": "v-amber", "SUSPECTED_CONCEPT_RISK": "v-amber",
-           "TEACHING_JUDGMENT": "v-blue", "CONSISTENT": "v-green", "NO_STATIC_EVIDENCE": "v-gray"}
-_GRADE_CLASS = {"合格": "g-green", "有缺陷": "g-amber", "不合格": "g-red", "本轮未评": "g-gray"}
+_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "report-engine.html"
 
-_CSS = """
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1f2933;--muted:#66727f;--line:#e3e8ee}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",Segoe UI,sans-serif}
-.wrap{max-width:1040px;margin:0 auto;padding:32px 22px 80px}
-h1{font-size:25px;margin:0 0 6px}
-h2{font-size:19px;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--line)}
-.sub{color:var(--muted);font-size:13.5px;margin:2px 0}
-.tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600;vertical-align:middle}
-.soul{background:#eef3fb;border:1px solid #d6e2f5;border-radius:10px;padding:10px 14px;margin:14px 0;font-size:13.5px;color:#33455c}
-table.axis{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
-table.axis th,table.axis td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line)}
-table.axis th{background:#fafbfc;font-size:13px;color:var(--muted);font-weight:600}
-table.axis tr:last-child td{border-bottom:0}
-.g-green{background:#e6f6ec;color:#1f8a4c}.g-amber{background:#fdf0e1;color:#b9650f}.g-red{background:#fde8e6;color:#c0392b}.g-gray{background:#eef0f2;color:#66727f}
-.cnt{font-variant-numeric:tabular-nums;font-weight:700}
-.stat{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0 4px}
-.stat .pill{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:13.5px}
-.stat b{font-size:18px}
-.card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0;box-shadow:0 1px 2px rgba(20,30,40,.04)}
-.card.v-red{border-left-color:#c0392b}.card.v-amber{border-left-color:#e67e22}.card.v-blue{border-left-color:#2980b9}
-.v-red{background:#fde8e6;color:#c0392b}.v-amber{background:#fdf0e1;color:#b9650f}.v-blue{background:#e7f1fa;color:#1f6aa8}.v-green{background:#e6f6ec;color:#1f8a4c}.v-gray{background:#eef0f2;color:#66727f}
-.chead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.idx{font-weight:700;color:var(--muted)}
-.atag{background:#eef0f2;color:#46525e;font-size:11.5px;padding:1px 7px;border-radius:6px}
-.quote{background:#0f1722;color:#e7edf3;border-radius:8px;padding:9px 12px;margin:8px 0;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12.5px;white-space:pre-wrap;word-break:break-word;overflow-x:auto}
-.fix{margin:8px 0 2px}.fix b{color:#1f8a4c}
-.prec{margin:8px 0 2px}.prec b{color:#b9650f}
-details{margin:8px 0 0;border-top:1px dashed var(--line);padding-top:8px}
-details summary{cursor:pointer;color:var(--muted);font-size:12.5px;font-weight:600;user-select:none}
-details .body{font-size:12.5px;color:#3a4651;margin-top:7px;white-space:pre-wrap;word-break:break-word}
-.empty{color:var(--muted);font-style:italic;padding:6px 2px}
-.todo{background:#fff8e6;border:1px solid #f3e3b3;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12.5px;color:#7a5b12}
-footer{margin-top:40px;color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:14px}
-"""
+_CODE_CAT = ("C2", "C3", "C4", "C6", "C7", "C9")        # → 须查代码,其余查文档
+_MISSING_RE = re.compile(r"漏列|未列|没列|缺(?!省)|应补|补上|补入|少列|未声明|欠声明|漏写|漏掉|未提供|未列出")
+_OVER_RE = re.compile(r"多列|多写|假\s*√|标.{0,4}√|误标.{0,4}支持")
+_READABLE_RE = re.compile(r"术语|措辞|风格不一致|命名不一致|写法不一致|大小写|前后不一致|表述不一致|统一为|拼写|错别字|锚文本|可读性")
 
 
 def _esc(s) -> str:
     return html.escape(html.unescape(str(s) if s is not None else ""), quote=False)
 
 
-def _card_quant(f: dict) -> str:
-    v = f.get("verdict", "")
-    src = " · ".join(x for x in [f.get("form"), f.get("source")] if x)
-    oq = f.get("open_question")
-    also = _also(f)
-    return f"""<div class="card {_VCLASS.get(v,'')}">
-  <div class="chead">
-    <span class="idx">#{f.get('idx','')}</span>
-    <span class="tag {_VCLASS.get(v,'')}">{_esc(_VERDICT_ZH.get(v,v))}</span>
-    <span class="atag">{_esc(_state.AXIS_ZH.get(f.get('axis'),'?'))}</span>
-    {f'<span class="atag">{_esc(src)}</span>' if src else ''}
-    <span class="atag">证据 {_esc(f.get('evidence_grade','?'))}</span>
-    {f'<span class="atag">另命中:{_esc(also)}</span>' if also else ''}
-  </div>
-  <div class="quote">{_esc(f.get('quote'))}</div>
-  <div class="fix"><b>改进 ▸</b> {_esc(f.get('improvement'))}</div>
-  {f'<div class="prec"><b>开放问题 ▸</b> {_esc(oq)}</div>' if oq else ''}
-  <details><summary>代码位置 / 取证</summary><div class="body">{_esc(f.get('code_location'))}</div></details>
-</div>"""
+def _raw(s) -> str:
+    """还原 HTML 实体为原文(DATA 存原文,引擎运行时再 esc 显示)。"""
+    return html.unescape(str(s) if s is not None else "")
 
 
-def _card_nonquant(f: dict) -> str:
-    v = f.get("verdict", "")
-    ext = f.get("external_evidence")
-    return f"""<div class="card {_VCLASS.get(v,'')}">
-  <div class="chead">
-    <span class="idx">#{f.get('idx','')}</span>
-    <span class="tag {_VCLASS.get(v,'')}">{_esc(_VERDICT_ZH.get(v,v))}</span>
-    <span class="atag">{_esc(_state.AXIS_ZH.get(f.get('axis'),'?'))}</span>
-    <span class="atag">教学判断 · 非代码事实</span>
-  </div>
-  <div class="quote">{_esc(f.get('quote'))}</div>
-  <div class="prec"><b>判例(读者会卡在哪)▸</b> {_esc(f.get('precedent'))}</div>
-  <div class="fix"><b>改进 ▸</b> {_esc(f.get('improvement'))}</div>
-  {f'<div class="prec"><b>外部反证 ▸</b> {_esc(ext)}</div>' if ext else ''}
-  <details><summary>steelman(已替原文打过的最强反论)</summary><div class="body">{_esc(f.get('steelman'))}</div></details>
-</div>"""
+def _short(s, n: int) -> str:
+    s = _raw(s).strip().replace("\n", " ")
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def _design_type(f: dict) -> str:
+    """映射到设计的三维缺陷类型(缺失/不可信/易读)。finder 显式给了就用,否则启发式。"""
+    if f.get("type") in ("untrust", "missing", "readable"):
+        return f["type"]
+    if f.get("axis") == "readable":
+        return "readable"
+    txt = (f.get("improvement") or "") + " " + (f.get("quote") or "")
+    if _READABLE_RE.search(txt) and "矛盾" not in txt and "冲突" not in txt:
+        return "readable"
+    if _MISSING_RE.search(txt) and not _OVER_RE.search(txt):
+        return "missing"
+    return "untrust"
+
+
+def _design_check(f: dict) -> str:
+    if f.get("check") in ("code", "doc", "rule"):
+        return f["check"]
+    return "code" if (f.get("category") or "")[:2] in _CODE_CAT else "doc"
+
+
+def _design_prob(f: dict) -> str:
+    if f.get("prob"):
+        return _short(f["prob"], 60)
+    head = re.split(r"[。;；\n]", _raw(f.get("improvement")), 1)[0]
+    return _short(head, 50) or _short(f.get("quote"), 50) or "(未填问题)"
+
+
+_CONSEQ_DEFAULT = {"blocker": "照做会失败或选到跑不通的目标", "misleading": "会误导,但通常有兜底可恢复", "minor": "对开发影响轻微"}
+
+
+def _to_data(findings: list, default_file: str) -> list:
+    """skill finding → 设计 DATA 契约。finder 给了 prob/conseq/fig 就直接用,否则从现有字段降级派生。"""
+    out = []
+    for i, f in enumerate(findings, 1):
+        cause = " · ".join(x for x in [f.get("root_cause"), f.get("category")] if x) or "未标注"
+        d = {
+            "idx": f.get("idx", i),
+            "file": f.get("doc") or f.get("file") or default_file or "(未记录)",
+            "type": _design_type(f),
+            "impact": f.get("impact") if f.get("impact") in _state.IMPACT else "misleading",
+            "conf": bool(f["conf"]) if isinstance(f.get("conf"), bool) else str(f.get("verdict", "")).startswith("CONFIRMED"),
+            "check": _design_check(f),
+            "prob": _design_prob(f),
+            "conseq": f.get("conseq") or _CONSEQ_DEFAULT.get(f.get("impact"), ""),
+            "conseqBad": f.get("impact") == "blocker",
+            "fix": _short(f.get("fix") or f.get("improvement"), 220),
+            "quote": _raw(f.get("quote")),
+            "code": _raw(f.get("code_location") or f.get("precedent")),
+            "cause": cause,
+        }
+        if isinstance(f.get("fig"), dict):
+            d["fig"] = f["fig"]
+        if f.get("figNote"):
+            d["figNote"] = _raw(f["figNote"])
+        out.append(d)
+    return out
 
 
 def render_html(repo: str) -> str:
+    """设计版:吐自包含引擎(templates/report-engine.html)+ 注入从 findings 映射的 DATA。"""
     meta, valid, needs_fix, quant, nonquant = _partition(repo)
-
-    rows = ""
-    for name, grade, cnt in _axis_cells(meta, valid):
-        rows += (f'<tr><td>{name}</td>'
-                 f'<td><span class="tag {_GRADE_CLASS.get(grade,"g-gray")}">{grade}</span></td>'
-                 f'<td class="cnt">{cnt}</td></tr>')
-
-    body_q = "\n".join(_card_quant(f) for f in quant) or '<div class="empty">未发现可量化事实问题。</div>'
-    body_n = "\n".join(_card_nonquant(f) for f in nonquant) or '<div class="empty">未发现教学判断类缺陷。</div>'
-
-    todo = ""
-    if needs_fix:
-        items = "\n".join(
-            f'<div class="todo">原文「{_esc((f.get("quote") or "")[:60])}」'
-            f'({_esc(f.get("cls"))}/{_esc(f.get("verdict"))}):缺 {_esc("; ".join(probs))}</div>'
-            for f, probs in needs_fix)
-        todo = f"<h2>四、待补(未过自校验闸,不计入结论)</h2>\n{items}"
-
-    return f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>进阶教程体检报告 — {_esc(repo)}</title><style>{_CSS}</style></head>
-<body><div class="wrap">
-<h1>进阶教程体检报告 <span class="tag g-amber">{_esc(repo)}</span></h1>
-<p class="sub">教程 <code>{_esc(meta.get('doc','?'))}</code></p>
-<p class="sub">类型:{_esc(meta.get('type','?'))} · 受众:{_esc(meta.get('audience','?'))}</p>
-<p class="sub">代码根 <code>{_esc(meta.get('code_root','?'))}</code> · 生成 {datetime.now().isoformat(timespec='seconds')}</p>
-<div class="soul">skill <code>cann-ops:tutorial-eval</code> —— 通读 + 对照代码<b>静态</b>评(默认不跑)。两条灵魂:<b>不打玄学分</b>(主观判断先 steelman 再 flag)、<b>grep 不到 ≠ 编造</b>(三态结论,只有强证据才写「确认」)。</div>
-
-<h2>一、五轴总评</h2>
-<table class="axis"><thead><tr><th>轴</th><th>定性档</th><th>可量化缺陷数</th></tr></thead><tbody>{rows}</tbody></table>
-<div class="stat">
-  <div class="pill">可量化缺陷(高置信,可计数)<b>{len(quant)}</b></div>
-  <div class="pill">教学判断(只定性,不计分)<b>{len(nonquant)}</b></div>
-  {f'<div class="pill">未过自校验闸(待补)<b>{len(needs_fix)}</b></div>' if needs_fix else ''}
-</div>
-
-<h2>二、事实问题(可量化 · 对照代码 · 高置信)</h2>
-{body_q}
-
-<h2>三、教学判断(不可量化 · steelman 已过 · 只定性)</h2>
-{body_n}
-
-{todo}
-
-<footer>评分只定性(档 + 缺陷计数,仅可量化条计数),不打数字分。每条可量化必带代码位置、不可量化必带判例 + steelman(自校验闸);不过闸的落「待补」、不进正文。跨轴重复按文档行号折叠。本 skill 只评不改不跑不探索。</footer>
-</div></body></html>"""
+    data = _to_data(quant + nonquant, meta.get("doc", ""))
+    data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")   # 防 </script> 截断
+    gentime = datetime.now().isoformat(timespec="minutes").replace("T", " ")
+    return (_TEMPLATE.read_text(encoding="utf-8")
+            .replace("__TAG__", _esc(repo))
+            .replace("__SUBJECT__", _esc(meta.get("type") or "接口 / 安装 / 开发指南文档"))
+            .replace("__CODEROOT__", _esc(meta.get("code_root", "?")))
+            .replace("__GENTIME__", gentime)
+            .replace("__DATA_JSON__", data_json))
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="渲染 tutorial-eval 体检报告(MD + HTML,含自校验闸/去重/未评标注)")
+    ap = argparse.ArgumentParser(description="渲染 tech-docs-guard 体检报告(MD + HTML,含自校验闸/去重/未评标注)")
     ap.add_argument("--repo", required=True)
-    ap.add_argument("--out", help="REPORT.md 输出路径(默认 CWD/cann-ops-report/tutorial-eval/<repo>/REPORT.md)")
+    ap.add_argument("--out", help="REPORT.md 输出路径(默认 CWD/cann-ops-report/tech-docs-guard/<repo>/REPORT.md)")
     ap.add_argument("--format", choices=["md", "html", "both"], default="both")
     args = ap.parse_args()
 

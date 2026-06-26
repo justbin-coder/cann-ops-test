@@ -3,7 +3,7 @@
 产出 skill 标准 finding(category=C1.1/C1.2,cls=quantifiable,axis=findable,
 verdict=CONFIRMED_MISMATCH,带 impact)。这是「脚本铺底」策略的 T0 之一:机械类不进 LLM。
 
-用法:cd skills/tutorial-eval && python -m scripts.linkcheck <repo_root> [--json out.json]
+用法:cd skills/tech-docs-guard && python -m scripts.linkcheck <repo_root> [--json out.json]
 """
 from __future__ import annotations
 

@@ -6,7 +6,7 @@ AddConfig(...)/SUPPORT_COMPUTE_UNIT 看实际注册了哪些 arch,比对:
   - 文档标 × 但代码已注册该 arch  → 疑似「假×/欠声明」→ impact=minor
 默认 verdict=SUSPECTED(老 SOC 可能由别处 binary 承接,留人/LLM 终判)。
 
-用法:cd skills/tutorial-eval && python -m scripts.support_table_check <repo_root> [--json out.json]
+用法:cd skills/tech-docs-guard && python -m scripts.support_table_check <repo_root> [--json out.json]
 """
 from __future__ import annotations
 

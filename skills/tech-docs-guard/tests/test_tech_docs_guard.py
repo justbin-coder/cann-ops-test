@@ -1,4 +1,4 @@
-"""tutorial-eval 脚本单测(纯逻辑;codecheck 用系统 grep)。"""
+"""tech-docs-guard 脚本单测(纯逻辑;codecheck 用系统 grep)。"""
 import sys
 import os
 
@@ -11,7 +11,7 @@ import render_report   # noqa: E402
 
 
 def _redirect(monkeypatch, tmp_path):
-    monkeypatch.setattr(_state, "TUTEVAL_ROOT", tmp_path / "tutorial-eval")
+    monkeypatch.setattr(_state, "TUTEVAL_ROOT", tmp_path / "tech-docs-guard")
 
 
 # ---- find_tutorials:命中开发指南、排除 quickstart/README/参考、跳噪声目录 ----
@@ -122,8 +122,7 @@ def test_unevaluated_axis(tmp_path, monkeypatch):
                                  "source": "code_mismatch", "quote": "x", "verdict": "SUSPECTED",
                                  "evidence_grade": "medium", "code_location": "build.sh:1", "improvement": "改"})
     md = render_report.render("ops-x")
-    assert md.count("本轮未评") == 4                 # 5 轴里只评了 trustworthy,其余 4 轴未评
-    assert "g-gray" in render_report.render_html("ops-x")
+    assert md.count("本轮未评") == 4                 # 5 轴里只评了 trustworthy,其余 4 轴未评(MD 总评表)
     # 缺省字段 → 向后兼容(不出现「本轮未评」)
     _state.save_meta("ops-x", {"doc": "docs/zh/develop/g.md", "type": "教学型", "audience": "x", "code_root": "/x"})
     assert "本轮未评" not in render_report.render("ops-x")
@@ -159,15 +158,13 @@ def test_render_html(tmp_path, monkeypatch):
     _state.save_meta("ops-x", {"doc": "docs/zh/develop/g.md", "type": "教学型", "audience": "x", "code_root": "/x"})
     _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "trustworthy", "form": "错", "source": "code_mismatch",
                                  "quote": "GlobalTensor<T> x_;", "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
-                                 "code_location": "g.md:5", "improvement": "改"})
-    _state.add_finding("ops-x", {"cls": "quantifiable", "axis": "readable", "quote": "无证据",
-                                 "verdict": "SUSPECTED", "improvement": "x"})   # 缺 code_location → 待补
+                                 "code_location": "g.md:5", "improvement": "改", "impact": "blocker", "category": "C4.1"})
     h = render_report.render_html("ops-x")
     assert h.strip().endswith("</html>")
-    assert 'class="card v-red"' in h and "<details>" in h     # 卡片 + 折叠
-    assert "确认对不上" in h                                    # 三态中文 + 色标
-    assert "GlobalTensor&lt;T&gt;" in h                        # HTML 转义(< > 不破坏结构)
-    assert "待补" in h and "无证据" in h                        # 自校验闸:无证据条落待补段
+    assert "var DATA =" in h and "--hw-red" in h              # 设计引擎注入
+    assert "docs/zh/develop/g.md" in h                         # 文件进 DATA
+    assert "GlobalTensor<T>" in h                              # 原文进 DATA(引擎 JS 运行时再 esc)
+    assert '"impact": "blocker"' in h                          # impact 字段映射
 
 
 # ---- linkcheck(T0):死文件链 + 死锚点 ----
