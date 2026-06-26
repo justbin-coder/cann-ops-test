@@ -117,7 +117,11 @@ def main() -> int:
           f"C1.2 锚点 {sum(1 for f in fs if f['category']=='C1.2')})")
     print("  impact:", dict(Counter(f["impact"] for f in fs)))
     if "--json" in sys.argv:
-        out = sys.argv[sys.argv.index("--json") + 1]
+        i = sys.argv.index("--json") + 1
+        if i >= len(sys.argv):
+            print("--json 需要一个输出路径参数", file=sys.stderr)
+            return 2
+        out = sys.argv[i]
         Path(out).write_text(json.dumps(fs, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"  -> {out}")
     return 0

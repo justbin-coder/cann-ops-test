@@ -14,7 +14,6 @@ import os
 import re
 import sys
 import json
-import subprocess
 from pathlib import Path
 
 # 产品名(子串匹配)→ 芯片代号(arch)。来源:真体检里 LLM 已核对过的映射。
@@ -49,26 +48,6 @@ def _op_root(doc: Path) -> Path | None:
         if (d / "op_host").is_dir():
             return d
     return None
-
-
-def _registered_archs(op_root: Path) -> set:
-    """grep 该算子 op_host/CMakeLists 里注册的 arch。"""
-    archs = set()
-    try:
-        res = subprocess.run(["grep", "-rohIE", r"(AddConfig\(\"[a-z0-9_]+\"|SUPPORT_COMPUTE_UNIT\s+\"[a-z0-9_; ]+\")",
-                                str(op_root / "op_host"), str(op_root / "CMakeLists.txt")],
-                             capture_output=True, text=True, errors="replace", timeout=20)
-        for tok in re.findall(r"ascend[0-9a-z_]+|kirin[0-9a-z_]+", res.stdout):
-            archs.add(tok)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    # 也认 op_host/config/<arch>/ 子目录
-    cfg = op_root / "op_host" / "config"
-    if cfg.is_dir():
-        for s in cfg.iterdir():
-            if s.is_dir():
-                archs.add(s.name)
-    return archs
 
 
 def _doc_marks(txt: str) -> dict:
@@ -133,7 +112,11 @@ def main() -> int:
     from collections import Counter
     print(f"support_table_check: {len(fs)} 条疑似支持表错(impact: {dict(Counter(f['impact'] for f in fs))})")
     if "--json" in sys.argv:
-        Path(sys.argv[sys.argv.index("--json") + 1]).write_text(json.dumps(fs, ensure_ascii=False, indent=2), encoding="utf-8")
+        i = sys.argv.index("--json") + 1
+        if i >= len(sys.argv):
+            print("--json 需要一个输出路径参数", file=sys.stderr)
+            return 2
+        Path(sys.argv[i]).write_text(json.dumps(fs, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0
 
 

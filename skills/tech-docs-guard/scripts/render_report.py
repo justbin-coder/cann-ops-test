@@ -292,8 +292,12 @@ def _to_data(findings: list, default_file: str) -> list:
 
 
 def render_html(repo: str) -> str:
-    """设计版:吐自包含引擎(templates/report-engine.html)+ 注入从 findings 映射的 DATA。"""
-    meta, valid, needs_fix, quant, nonquant = _partition(repo)
+    """设计版:吐自包含引擎(templates/report-engine.html)+ 注入从 findings 映射的 DATA。
+
+    注:新设计无「待补」段——未过自校验闸的缺陷(`_needs_fix`)按设计不进 DATA / 不在 HTML 呈现;
+    需查待补项请看 MD 版(render() 仍保留待补段)。故 `_valid` / `_needs_fix` 仅占位不用。
+    """
+    meta, _valid, _needs_fix, quant, nonquant = _partition(repo)
     data = _to_data(quant + nonquant, meta.get("doc", ""))
     data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")   # 防 </script> 截断
     gentime = datetime.now().isoformat(timespec="minutes").replace("T", " ")
