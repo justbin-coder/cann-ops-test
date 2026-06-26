@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -28,6 +29,9 @@ import _state  # noqa: E402
 
 _CONFIRMED = {"CONFIRMED_MISMATCH", "CONFIRMED_CONCEPT_WRONG"}
 _AX_ORDER = ["findable", "trustworthy", "learnable", "operable", "readable"]
+
+# 默认舍弃 minor(瑕疵):问题量可控、聚焦阻断+误导。env 或 CLI --with-minor 可保留。
+WITH_MINOR = os.environ.get("TECH_DOCS_GUARD_WITH_MINOR", "") == "1"
 
 _VERDICT_ZH = {"CONFIRMED_MISMATCH": "确认对不上", "SUSPECTED": "疑似",
                "CONSISTENT": "一致", "NO_STATIC_EVIDENCE": "未找到静态证据",
@@ -107,6 +111,8 @@ def _partition(repo: str):
 
     valid = _dedup(valid_raw, docbase)
     defects = [f for f in valid if f.get("verdict") in _state.DEFECT_VERDICTS]
+    if not WITH_MINOR:                                  # 默认舍弃 minor(瑕疵);--with-minor / env 可保留
+        defects = [f for f in defects if f.get("impact") != "minor"]
     quant = [f for f in defects if f.get("cls") == "quantifiable"]
     nonquant = [f for f in defects if f.get("cls") == "non_quantifiable"]
     quant.sort(key=lambda f: (_imp_rank(f), f.get("verdict") != "CONFIRMED_MISMATCH", f.get("idx", 0)))
@@ -314,7 +320,12 @@ def main() -> int:
     ap.add_argument("--repo", required=True)
     ap.add_argument("--out", help="REPORT.md 输出路径(默认 CWD/cann-ops-report/tech-docs-guard/<repo>/REPORT.md)")
     ap.add_argument("--format", choices=["md", "html", "both"], default="both")
+    ap.add_argument("--with-minor", action="store_true", help="保留 minor(瑕疵)条目;默认舍弃")
     args = ap.parse_args()
+
+    global WITH_MINOR
+    if args.with_minor:
+        WITH_MINOR = True
 
     md_out = Path(args.out) if args.out else _state.repo_dir(args.repo) / "REPORT.md"
     md_out.parent.mkdir(parents=True, exist_ok=True)

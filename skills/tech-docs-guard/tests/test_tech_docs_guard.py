@@ -202,9 +202,25 @@ def test_render_impact_sort(tmp_path, monkeypatch):
     base = dict(cls="quantifiable", axis="trustworthy", verdict="CONFIRMED_MISMATCH",
                 improvement="fix", code_location="x:1")
     _state.save_findings("r", [
-        {**base, "quote": "MINOR_ONE", "impact": "minor"},
+        {**base, "quote": "MISLEAD_ONE", "impact": "misleading"},
         {**base, "quote": "BLOCKER_ONE", "impact": "blocker"},
     ])
     md = render_report.render("r")
     assert "🔴阻断" in md and "影响" in md
-    assert md.index("BLOCKER_ONE") < md.index("MINOR_ONE")    # 阻断排前
+    assert md.index("BLOCKER_ONE") < md.index("MISLEAD_ONE")   # 阻断排前
+
+
+def test_drop_minor_by_default(tmp_path, monkeypatch):
+    _redirect(monkeypatch, tmp_path)
+    _state.save_meta("r", {"doc": "t.md", "axes_evaluated": ["trustworthy"]})
+    base = dict(cls="quantifiable", axis="trustworthy", verdict="CONFIRMED_MISMATCH",
+                improvement="fix", code_location="x:1")
+    _state.save_findings("r", [
+        {**base, "quote": "MINOR_DROP", "impact": "minor"},
+        {**base, "quote": "BLOCKER_KEEP", "impact": "blocker"},
+    ])
+    assert render_report.WITH_MINOR is False                       # 默认舍弃
+    md = render_report.render("r")
+    assert "BLOCKER_KEEP" in md and "MINOR_DROP" not in md         # 默认丢 minor
+    monkeypatch.setattr(render_report, "WITH_MINOR", True)
+    assert "MINOR_DROP" in render_report.render("r")               # --with-minor 可保留
