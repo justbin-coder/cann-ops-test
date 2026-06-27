@@ -273,9 +273,14 @@ _CAT8 = {"C1": "C1", "C2": "C1", "C3": "C2", "C6": "C2", "C4": "C3", "C5": "C4",
          "C7": "C5", "C8": "C6", "C9": "C6", "J1": "J1", "J2": "J2", "J3": "J2"}
 
 
+_CAT8_SET = {"C1", "C2", "C3", "C4", "C5", "C6", "J1", "J2"}
+
+
 def _design_cat(f: dict) -> str:
-    h = (f.get("category") or "").upper().split(".")[0]
-    return _CAT8.get(h, "C2")
+    c = (f.get("category") or "").upper().strip()
+    if c in _CAT8_SET:                          # 新 finder 已直出 8 类裸码 → 原样保留
+        return c
+    return _CAT8.get(c.split(".")[0], "C2")     # 老叶子码(带 . 或 C7–C9/J3)→ 映射到 8 类
 
 
 def _to_data(findings: list, default_file: str) -> list:
