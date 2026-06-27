@@ -161,10 +161,11 @@ def test_render_html(tmp_path, monkeypatch):
                                  "code_location": "g.md:5", "improvement": "改", "impact": "blocker", "category": "C4.1"})
     h = render_report.render_html("ops-x")
     assert h.strip().endswith("</html>")
-    assert "var DATA =" in h and "--hw-red" in h              # 设计引擎注入
-    assert "docs/zh/develop/g.md" in h                         # 文件进 DATA
-    assert "GlobalTensor<T>" in h                              # 原文进 DATA(引擎 JS 运行时再 esc)
-    assert '"impact": "blocker"' in h                          # impact 字段映射
+    assert "var DATA =" in h and "算子文档体检报告" in h         # 设计引擎(按问题类型)注入
+    assert '"cat": "C3"' in h                                   # category C4.1 → 8 类 C3(代码片段)
+    assert "docs/zh/develop/g.md" in h                          # doc 进 DATA
+    assert "GlobalTensor<T>" in h                               # 原文进 DATA(引擎 JS 运行时再 esc)
+    assert '"impact": "blocker"' in h and '"suspected": false' in h
 
 
 # ---- linkcheck(T0):死文件链 + 死锚点 ----

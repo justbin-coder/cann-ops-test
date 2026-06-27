@@ -268,26 +268,36 @@ def _design_prob(f: dict) -> str:
 
 _CONSEQ_DEFAULT = {"blocker": "照做会失败或选到跑不通的目标", "misleading": "会误导,但通常有兜底可恢复", "minor": "对开发影响轻微"}
 
+# 旧叶子码 → 8 类(C1–C6/J1–J2);新 finder 已直出 8 类,此映射兜底老数据。
+_CAT8 = {"C1": "C1", "C2": "C1", "C3": "C2", "C6": "C2", "C4": "C3", "C5": "C4",
+         "C7": "C5", "C8": "C6", "C9": "C6", "J1": "J1", "J2": "J2", "J3": "J2"}
+
+
+def _design_cat(f: dict) -> str:
+    h = (f.get("category") or "").upper().split(".")[0]
+    return _CAT8.get(h, "C2")
+
 
 def _to_data(findings: list, default_file: str) -> list:
-    """skill finding → 设计 DATA 契约。finder 给了 prob/conseq/fig 就直接用,否则从现有字段降级派生。"""
+    """skill finding → 设计 DATA 契约(report-engine.html 字段名)。finder 给了 prob/conseq/fig 就直接用,否则降级派生。"""
     out = []
     for i, f in enumerate(findings, 1):
-        cause = " · ".join(x for x in [f.get("root_cause"), f.get("category")] if x) or "未标注"
+        confirmed = bool(f["conf"]) if isinstance(f.get("conf"), bool) else str(f.get("verdict", "")).startswith("CONFIRMED")
         d = {
             "idx": f.get("idx", i),
-            "file": f.get("doc") or f.get("file") or default_file or "(未记录)",
-            "type": _design_type(f),
+            "doc": f.get("doc") or f.get("file") or default_file or "(未记录)",
+            "cat": _design_cat(f),
             "impact": f.get("impact") if f.get("impact") in _state.IMPACT else "misleading",
-            "conf": bool(f["conf"]) if isinstance(f.get("conf"), bool) else str(f.get("verdict", "")).startswith("CONFIRMED"),
+            "type": _design_type(f),
             "check": _design_check(f),
+            "suspected": not confirmed,
             "prob": _design_prob(f),
             "conseq": f.get("conseq") or _CONSEQ_DEFAULT.get(f.get("impact"), ""),
             "conseqBad": f.get("impact") == "blocker",
             "fix": _short(f.get("fix") or f.get("improvement"), 220),
             "quote": _raw(f.get("quote")),
             "code": _raw(f.get("code_location") or f.get("precedent")),
-            "cause": cause,
+            "rc": f.get("root_cause") or "",
         }
         if isinstance(f.get("fig"), dict):
             d["fig"] = f["fig"]
@@ -308,8 +318,6 @@ def render_html(repo: str) -> str:
     data_json = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")   # 防 </script> 截断
     gentime = datetime.now().isoformat(timespec="minutes").replace("T", " ")
     return (_TEMPLATE.read_text(encoding="utf-8")
-            .replace("__TAG__", _esc(repo))
-            .replace("__SUBJECT__", _esc(meta.get("type") or "接口 / 安装 / 开发指南文档"))
             .replace("__CODEROOT__", _esc(meta.get("code_root", "?")))
             .replace("__GENTIME__", gentime)
             .replace("__DATA_JSON__", data_json))
