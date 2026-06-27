@@ -60,16 +60,20 @@ def _doc_marks(txt: str) -> dict:
     return marks
 
 
-def check(repo_root: str) -> list[dict]:
+def check(repo_root: str, under: str | None = None) -> list[dict]:
     """精确信号:同一算子的多篇文档对同一产品的 √/× 自相矛盾(铁的 doc bug,无 binary 承接歧义)。
 
     放弃「支持表 vs 代码」方向——老芯片 binary 常由别处承接,脚本判不了,留给 LLM。
+    under: 限定只扫 `<repo_root>/<under>`(与 P0 范围对齐);None=全仓且自动跳过中央 docs/
+    (中央文档无算子产品支持表,本工具针对算子文档)。显式给 under 则尊重该范围、不再跳 docs/。
     """
     root = Path(repo_root).resolve()
+    base = (root / under) if under else root
     from collections import defaultdict
     by_op = defaultdict(dict)              # op_root -> {rel_doc: {prod: mark}}
-    mds = [p for p in root.rglob("*.md")
-           if not any(x in str(p).replace(os.sep, "/") for x in _EXCLUDE) and not str(p.relative_to(root)).startswith("docs/")]
+    mds = [p for p in base.rglob("*.md")
+           if not any(x in str(p).replace(os.sep, "/") for x in _EXCLUDE)
+           and (under is not None or not str(p.relative_to(root)).startswith("docs/"))]
     for p in mds:
         try:
             txt = p.read_text(encoding="utf-8", errors="replace")
@@ -106,9 +110,16 @@ def check(repo_root: str) -> list[dict]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("用法: python -m scripts.support_table_check <repo_root> [--json out.json]", file=sys.stderr)
+        print("用法: python3 -m scripts.support_table_check <repo_root> [--under <subdir>] [--json out.json]", file=sys.stderr)
         return 2
-    fs = check(sys.argv[1])
+    under = None
+    if "--under" in sys.argv:
+        j = sys.argv.index("--under") + 1
+        if j >= len(sys.argv):
+            print("--under 需要一个子目录参数", file=sys.stderr)
+            return 2
+        under = sys.argv[j]
+    fs = check(sys.argv[1], under)
     from collections import Counter
     print(f"support_table_check: {len(fs)} 条疑似支持表错(impact: {dict(Counter(f['impact'] for f in fs))})")
     if "--json" in sys.argv:

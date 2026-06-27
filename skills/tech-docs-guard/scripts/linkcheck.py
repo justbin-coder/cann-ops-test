@@ -43,10 +43,15 @@ def _is_external(t: str) -> bool:
     return t.startswith(("http://", "https://", "mailto:", "ftp://", "tel:"))
 
 
-def find_broken_links(repo_root: str) -> list[dict]:
-    """返回 skill 标准 finding 列表(category C1)。"""
+def find_broken_links(repo_root: str, under: str | None = None) -> list[dict]:
+    """返回 skill 标准 finding 列表(category C1)。
+
+    under: 限定只扫 `<repo_root>/<under>` 子树(与 P0 的 `--under docs` 范围对齐);None=全仓。
+    链接仍按各文档自身位置相对解析,under 只缩小「被检文档」集合。
+    """
     root = Path(repo_root).resolve()
-    mds = [p for p in root.rglob("*.md") if not any(x in str(p).replace(os.sep, "/") for x in _EXCLUDE)]
+    base = (root / under) if under else root
+    mds = [p for p in base.rglob("*.md") if not any(x in str(p).replace(os.sep, "/") for x in _EXCLUDE)]
     out, slug_cache = [], {}
     for p in mds:
         try:
@@ -108,9 +113,16 @@ def find_broken_links(repo_root: str) -> list[dict]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("用法: python -m scripts.linkcheck <repo_root> [--json out.json]", file=sys.stderr)
+        print("用法: python3 -m scripts.linkcheck <repo_root> [--under docs] [--json out.json]", file=sys.stderr)
         return 2
-    fs = find_broken_links(sys.argv[1])
+    under = None
+    if "--under" in sys.argv:
+        j = sys.argv.index("--under") + 1
+        if j >= len(sys.argv):
+            print("--under 需要一个子目录参数", file=sys.stderr)
+            return 2
+        under = sys.argv[j]
+    fs = find_broken_links(sys.argv[1], under)
     from collections import Counter
     anchors = sum(1 for f in fs if "锚点不存在" in (f.get("code_location") or ""))
     print(f"linkcheck: 扫到死链/死锚 {len(fs)} 条(C1;文件 {len(fs)-anchors} / 锚点 {anchors})")

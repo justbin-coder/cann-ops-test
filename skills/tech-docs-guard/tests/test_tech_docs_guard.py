@@ -214,6 +214,22 @@ def test_support_table_contradiction(tmp_path):
     assert fs[0]["category"] == "C5" and fs[0]["verdict"] == "CONFIRMED_MISMATCH"
 
 
+# ---- T0 脚本 --under 跟随 P0 范围(TG-2 修复)----
+
+def test_t0_under_scope(tmp_path):
+    import linkcheck, support_table_check
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "g.md").write_text("[死链](./none.cpp)\n", encoding="utf-8")
+    op = tmp_path / "myop"
+    (op / "op_host").mkdir(parents=True)
+    (op / "x.md").write_text("[死链](./none.cpp)\n", encoding="utf-8")
+    # linkcheck:--under docs 只扫 docs/(1 条);不限范围两条都报
+    assert len(linkcheck.find_broken_links(str(tmp_path), under="docs")) == 1
+    assert len(linkcheck.find_broken_links(str(tmp_path))) == 2
+    # support_table_check:--under docs 限定中央文档(无产品支持表)→ 0
+    assert support_table_check.check(str(tmp_path), under="docs") == []
+
+
 # ---- render:阻断排在误导前 + 影响列存在 ----
 
 def test_render_impact_sort(tmp_path, monkeypatch):
