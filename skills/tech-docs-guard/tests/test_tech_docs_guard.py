@@ -36,6 +36,25 @@ def test_find_tutorials(tmp_path):
     assert all("build/" not in p for p in paths)
 
 
+# ---- discover_docs(范围默认):限定 docs/ + 取全部技术文档(非教程启发式)----
+
+def test_discover_docs_scope(tmp_path):
+    (tmp_path / "docs" / "zh" / "context").mkdir(parents=True)
+    (tmp_path / "docs" / "zh" / "context" / "数据类型.md").write_text("# 数据类型\n", encoding="utf-8")  # 非教程,也要取
+    (tmp_path / "docs" / "QUICKSTART.md").write_text("# 快速入门\n", encoding="utf-8")                     # docs/ 下,取
+    (tmp_path / "docs" / "build").mkdir()
+    (tmp_path / "docs" / "build" / "x.md").write_text("# x", encoding="utf-8")                              # 噪声目录,跳
+    (tmp_path / "myop").mkdir()
+    (tmp_path / "myop" / "myop_develop_guide.md").write_text("# 算子开发指南\n", encoding="utf-8")         # 算子目录里的教程,不取
+
+    paths = [x["path"] for x in find_tutorials.discover_docs(str(tmp_path), "docs")]
+    assert "docs/zh/context/数据类型.md" in paths        # docs/ 下非教程也取
+    assert "docs/QUICKSTART.md" in paths                  # docs/ 全量
+    assert all("build/" not in p for p in paths)          # 噪声目录跳
+    assert all(p.startswith("docs/") for p in paths)      # 严格限定 docs/ 子树
+    assert "myop/myop_develop_guide.md" not in paths      # 算子目录的教程,不越界取
+
+
 # ---- codecheck triage:占位符 / 外部命令 / 仓内对象 ----
 
 def test_triage():

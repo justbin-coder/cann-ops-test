@@ -1,10 +1,12 @@
-"""P0:在一个仓里发现「进阶教程」候选(开发指南/教程类),供 agent 让用户确认评哪份。
+"""P0:发现待评文档,供 agent 让用户确认评哪些。两种模式:
 
-**零硬编码**:不写死 `docs/zh/develop`——每仓目录/命名不一样、还会变,故启发式发现。
-命中=文件名/标题像「开发指南/教程」;排除=quickstart/README/参考清单/how-to/元文件。
-只发现,不评质量。
+- **`discover_docs(repo, under="docs")`【范围默认】**:枚举 `<repo>/docs/` 下**全部**技术 .md
+  (含 context/install/invocation,非只教程),严格限定在 docs/ 子树。对应 SKILL.md「范围默认 docs/」。
+- `find_tutorials(repo)`:**全仓**按启发式找「进阶教程」(文件名/标题像开发指南/教程);旧逻辑,
+  非默认范围(会越出 docs/、又漏掉 docs/ 里的非教程文档)。
 
-用法:python -m scripts.find_tutorials <repo_root> [--json]
+**零硬编码**:不写死 `docs/zh/develop`。只发现,不评质量。
+用法:`python -m scripts.find_tutorials <repo_root> --under docs --json`(默认范围)/ 无 `--under` 走教程启发式。
 """
 from __future__ import annotations
 
@@ -71,13 +73,36 @@ def find_tutorials(repo_root: str) -> list[dict]:
     return out
 
 
+def discover_docs(repo_root: str, under: str = "docs") -> list[dict]:
+    """范围默认:枚举 `<repo>/<under>` 下**全部**技术 .md(只排噪声目录),不做教程启发式。
+
+    对应 SKILL.md P0「范围默认只取根 docs/ 中央文档」——含 context/install/invocation 等
+    **非教程**文档,且严格限定在 `<repo>/<under>` 子树内(不像 find_tutorials 那样 rglob 全仓)。
+    """
+    root = Path(repo_root).resolve()
+    base = root / under
+    if not base.is_dir():
+        raise FileNotFoundError(f"docs dir not found: {base}")
+    out = []
+    for p in sorted(base.rglob("*.md")):
+        if _skip(p):
+            continue
+        try:
+            title = _title(p.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            title = ""
+        out.append({"path": str(p.relative_to(root)), "abs_path": str(p), "match": "docs", "title": title})
+    return out
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="发现进阶教程(开发指南/教程类)候选")
+    ap = argparse.ArgumentParser(description="发现待评文档:默认 --under docs 取 docs/ 全量;无 --under 则全仓找进阶教程")
     ap.add_argument("repo_root")
+    ap.add_argument("--under", help="只取该子目录下全部技术 .md(范围默认 'docs');不传则全仓找进阶教程启发式")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     try:
-        docs = find_tutorials(args.repo_root)
+        docs = discover_docs(args.repo_root, args.under) if args.under else find_tutorials(args.repo_root)
     except FileNotFoundError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 1
