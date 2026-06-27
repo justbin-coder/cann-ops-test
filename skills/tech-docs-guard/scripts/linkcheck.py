@@ -1,6 +1,6 @@
 """T0 脚本检查:全文档内链/锚点可达性(category C1)。确定性、不调 LLM、~0 token。
 
-产出 skill 标准 finding(category=C1.1/C1.2,cls=quantifiable,axis=findable,
+产出 skill 标准 finding(category=C1,cls=quantifiable,axis=findable,
 verdict=CONFIRMED_MISMATCH,带 impact)。这是「脚本铺底」策略的 T0 之一:机械类不进 LLM。
 
 用法:cd skills/tech-docs-guard && python -m scripts.linkcheck <repo_root> [--json out.json]
@@ -44,7 +44,7 @@ def _is_external(t: str) -> bool:
 
 
 def find_broken_links(repo_root: str) -> list[dict]:
-    """返回 skill 标准 finding 列表(category C1.1/C1.2)。"""
+    """返回 skill 标准 finding 列表(category C1)。"""
     root = Path(repo_root).resolve()
     mds = [p for p in root.rglob("*.md") if not any(x in str(p).replace(os.sep, "/") for x in _EXCLUDE)]
     out, slug_cache = [], {}
@@ -78,7 +78,7 @@ def find_broken_links(repo_root: str) -> list[dict]:
             quote = m.group(0)[:120]
             if not resolved.exists():
                 out.append({
-                    "category": "C1.1", "cls": "quantifiable", "axis": "findable",
+                    "category": "C1", "cls": "quantifiable", "axis": "findable",
                     "form": "错", "source": "code_mismatch",
                     "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
                     "quote": quote,
@@ -94,7 +94,7 @@ def find_broken_links(repo_root: str) -> list[dict]:
                     slug_cache[key] = _heading_slugs(resolved)
                 if _slug(anchor) not in slug_cache[key] and anchor.lower() not in slug_cache[key]:
                     out.append({
-                        "category": "C1.2", "cls": "quantifiable", "axis": "findable",
+                        "category": "C1", "cls": "quantifiable", "axis": "findable",
                         "form": "错", "source": "code_mismatch",
                         "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
                         "quote": quote,
@@ -112,9 +112,8 @@ def main() -> int:
         return 2
     fs = find_broken_links(sys.argv[1])
     from collections import Counter
-    print(f"linkcheck: 扫到死链/死锚 {len(fs)} 条 "
-          f"(C1.1 文件 {sum(1 for f in fs if f['category']=='C1.1')} / "
-          f"C1.2 锚点 {sum(1 for f in fs if f['category']=='C1.2')})")
+    anchors = sum(1 for f in fs if "锚点不存在" in (f.get("code_location") or ""))
+    print(f"linkcheck: 扫到死链/死锚 {len(fs)} 条(C1;文件 {len(fs)-anchors} / 锚点 {anchors})")
     print("  impact:", dict(Counter(f["impact"] for f in fs)))
     if "--json" in sys.argv:
         i = sys.argv.index("--json") + 1

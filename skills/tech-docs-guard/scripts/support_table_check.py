@@ -1,4 +1,4 @@
-"""T0 脚本检查:算子文档「产品支持情况」表 vs 代码注册(category C7.1)。确定性、~0 token。
+"""T0 脚本检查:算子文档「产品支持情况」表 vs 代码注册(category C5)。确定性、~0 token。
 
 读文档支持表的 产品行→√/×,把产品名映射到芯片代号(arch),再 grep 该算子 op_host 里
 AddConfig(...)/SUPPORT_COMPUTE_UNIT 看实际注册了哪些 arch,比对:
@@ -93,7 +93,7 @@ def check(repo_root: str) -> list[dict]:
                 yes = [d for d, v in votes.items() if v == "√"]
                 no = [d for d, v in votes.items() if v == "×"]
                 out.append({
-                    "category": "C7.1", "cls": "quantifiable", "axis": "trustworthy",
+                    "category": "C5", "cls": "quantifiable", "axis": "trustworthy",
                     "form": "错", "source": "self_contradiction",
                     "verdict": "CONFIRMED_MISMATCH", "evidence_grade": "strong",
                     "impact": "misleading", "root_cause": "copy_paste_not_updated",

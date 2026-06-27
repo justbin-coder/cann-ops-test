@@ -175,8 +175,8 @@ def test_linkcheck(tmp_path):
         "[死链](./nope.cpp)\n[活锚](./b.md#标题)\n[死锚](./b.md#不存在)\n", encoding="utf-8")
     (tmp_path / "b.md").write_text("## 标题\n正文", encoding="utf-8")
     fs = linkcheck.find_broken_links(str(tmp_path))
-    cats = sorted(f["category"] for f in fs)
-    assert cats == ["C1.1", "C1.2"]                       # 一条死文件 + 一条死锚,活锚不报
+    assert len(fs) == 2 and {f["category"] for f in fs} == {"C1"}   # 一条死文件 + 一条死锚(均 C1),活锚不报
+    assert sum("锚点不存在" in f["code_location"] for f in fs) == 1   # 恰一条死锚
     assert all(f["impact"] == "misleading" for f in fs)
 
 
@@ -191,7 +191,7 @@ def test_support_table_contradiction(tmp_path):
     (op / "docs" / "aclnnMyOp.md").write_text("| <term>Atlas A2 训练系列产品</term> | × |\n", encoding="utf-8")
     fs = support_table_check.check(str(tmp_path))
     assert len(fs) == 1
-    assert fs[0]["category"] == "C7.1" and fs[0]["verdict"] == "CONFIRMED_MISMATCH"
+    assert fs[0]["category"] == "C5" and fs[0]["verdict"] == "CONFIRMED_MISMATCH"
 
 
 # ---- render:阻断排在误导前 + 影响列存在 ----
